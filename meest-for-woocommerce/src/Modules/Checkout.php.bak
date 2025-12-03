@@ -1,0 +1,2832 @@
+<?php
+
+namespace MeestShipping\Modules;
+
+use MeestShipping\Core\Customer;
+use MeestShipping\Core\Request;
+use MeestShipping\Helpers\Html;
+use MeestShipping\Repositories\BranchRepository;
+use MeestShipping\Repositories\CityRepository;
+use MeestShipping\Repositories\StreetRepository;
+use MeestShipping\Traits\Helper;
+use MeestShipping\Resources\AddressCustomerResource;
+use MeestShipping\Contracts\Module;
+
+defined( 'ABSPATH' ) || exit;
+
+class Checkout implements Module
+{
+    use Helper;
+
+    private $customer;
+    private $options;
+    private static $hooks_registered = false;
+
+    public function __construct()
+    {
+        $this->options = meest_init('Option')->all();
+        $this->customer = Customer::instance();
+    }
+
+    public function init()
+    {
+        // Регистрируем хуки с задержкой, когда WooCommerce будет доступен
+        add_action('wp_loaded', [$this, 'registerHooks']);
+        add_action('woocommerce_init', [$this, 'registerHooks']);
+        
+        // Прямые хуки для сохранения полей Meest через разные способы
+        add_action('woocommerce_checkout_create_order', [$this, 'saveMeestFields'], -9999, 2);
+        add_action('woocommerce_checkout_order_processed', [$this, 'saveMeestFieldsAfter'], -9999, 3);
+        add_action('woocommerce_new_order', [$this, 'saveMeestFieldsOnNewOrder'], -9999, 2);
+        add_filter('woocommerce_checkout_posted_data', [$this, 'addMeestFieldsToPostedData'], -9999);
+        
+        // Хук для Store API (новый Checkout Block)
+        add_action('woocommerce_store_api_checkout_update_order_from_request', [$this, 'saveMeestFieldsFromStoreApi'], 10, 2);
+        
+        // Сохраняем данные из POST в сессию перед обработкой заказа
+        add_action('woocommerce_after_checkout_validation', [$this, 'saveMeestFieldsToSession'], 10, 2);
+        
+        // AJAX handlers
+        add_action('wp_ajax_meest_get_cities', [$this, 'ajaxGetCities']);
+        add_action('wp_ajax_nopriv_meest_get_cities', [$this, 'ajaxGetCities']);
+        add_action('wp_ajax_meest_get_branches', [$this, 'ajaxGetBranches']);
+        add_action('wp_ajax_nopriv_meest_get_branches', [$this, 'ajaxGetBranches']);
+        add_action('wp_ajax_meest_get_streets', [$this, 'ajaxGetStreets']);
+        add_action('wp_ajax_nopriv_meest_get_streets', [$this, 'ajaxGetStreets']);
+        
+        // AJAX для сохранения данных Meest к заказу
+        add_action('wp_ajax_meest_save_order_data', [$this, 'ajaxSaveMeestOrderData']);
+        add_action('wp_ajax_nopriv_meest_save_order_data', [$this, 'ajaxSaveMeestOrderData']);
+        
+        return $this;
+    }
+    
+    public function registerHooks()
+    {
+        // Защита от повторной регистрации хуков
+        if (self::$hooks_registered) {
+            return;
+        }
+        
+        // Отмечаем, что хуки зарегистрированы
+        self::$hooks_registered = true;
+        
+        // НЕ регистрируем woocommerce_checkout_fields - не трогаем стандартные поля вообще!
+        // Это предотвращает конфликты с другими плагинами доставки (WC Ukr Shipping)
+        // add_filter('woocommerce_checkout_fields', [$this, 'checkoutFields'], 10); // ОТКЛЮЧЕНО
+        
+        // Регистрируем только обработку данных при сохранении
+        add_action('woocommerce_checkout_process', [$this, 'woocommerceCheckoutProcess'], 10, 2);
+        add_action('woocommerce_checkout_update_order_meta', [$this, 'updateOrderMeta'], 10, 2);
+        add_filter('woocommerce_checkout_posted_data', [$this, 'filter_checkout_posted_data'], 10);
+        
+        // Вывод формы в футере, затем перемещаем через JavaScript
+        add_action('wp_footer', function() {
+            if (is_checkout()) {
+                // Выводим форму в скрытом контейнере
+                echo '<div id="meest_form_container" style="display: none;">';
+                $this->checkoutForm('shipping');
+                echo '</div>';
+                ?>
+                <script type="text/javascript">
+                jQuery(document).ready(function($) {
+                    var formMoved = false;
+                    
+                    function moveMeestForm() {
+                        // Если форма уже перемещена, не делаем ничего
+                        if (formMoved) return;
+                        
+                        var container = $('#meest_form_container');
+                        if (container.length === 0) return;
+                        
+                        var meestForm = container.children();
+                        if (meestForm.length === 0) return;
+                        
+                        // Пробуем найти место для вставки
+                        var targetElement = null;
+                        
+                        // Вариант 1: WooCommerce блоки - после shipping option
+                        if ($('.wc-block-checkout__shipping-option').length > 0) {
+                            targetElement = $('.wc-block-checkout__shipping-option');
+                        }
+                        // Вариант 2: WooCommerce блоки - после shipping methods block
+                        else if ($('.wp-block-woocommerce-checkout-shipping-methods-block').length > 0) {
+                            targetElement = $('.wp-block-woocommerce-checkout-shipping-methods-block');
+                        }
+                        // Вариант 3: Классический checkout - после shipping options
+                        else if ($('.woocommerce-shipping-methods').length > 0) {
+                            targetElement = $('.woocommerce-shipping-methods').parent();
+                        }
+                        // Вариант 4: Классический checkout - после shipping fields
+                        else if ($('.woocommerce-shipping-fields').length > 0) {
+                            targetElement = $('.woocommerce-shipping-fields');
+                        }
+                        // Вариант 5: После customer details
+                        else if ($('.woocommerce-checkout-review-order').length > 0) {
+                            targetElement = $('.woocommerce-checkout-review-order').prev();
+                        }
+                        
+                        if (targetElement && targetElement.length > 0) {
+                            targetElement.after(meestForm);
+                            container.remove();
+                            formMoved = true;
+                        }
+                    }
+                    
+                    // Пробуем переместить сразу
+                    moveMeestForm();
+                    
+                    // Пробуем еще раз через 500ms
+                    setTimeout(moveMeestForm, 500);
+                    
+                    // Пробуем через 1 секунду (для блоков)
+                    setTimeout(moveMeestForm, 1000);
+                    
+                    // И при обновлении checkout (классический)
+                    $(document.body).on('updated_checkout', moveMeestForm);
+                    
+                    // Для WooCommerce блоков
+                    $(document.body).on('wc-blocks_checkout_updated', moveMeestForm);
+                    $(document.body).on('updated_wc_div', moveMeestForm);
+                });
+                </script>
+                <?php
+            }
+        });
+        
+        // Добавляем автокомплит для городов из Meest API
+        add_action('wp_footer', function() {
+            if (is_checkout()) {
+                ?>
+                <script type="text/javascript">
+                jQuery(document).ready(function($) {
+                    // Загружаем Select2 если не доступен
+                    function loadSelect2IfNeeded(callback) {
+                        if (typeof $.fn.selectWoo === 'function' || typeof $.fn.select2 === 'function') {
+                            // Уже загружен
+                            if (callback) callback();
+                            return;
+                        }
+                        
+                        if (window.select2Loading) {
+                            // Уже загружается
+                            return;
+                        }
+                        
+                        window.select2Loading = true;
+                        
+                        // Загружаем CSS
+                        var link = document.createElement('link');
+                        link.rel = 'stylesheet';
+                        link.href = 'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css';
+                        document.head.appendChild(link);
+                        
+                        // Загружаем JS
+                        $.getScript('https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js', function() {
+                            window.select2Loaded = true;
+                            window.select2Loading = false;
+                            if (callback) callback();
+                        });
+                    }
+                    
+                    // Функция для инициализации автокомплита на поле города
+                    function initCityAutocomplete() {
+                        
+                        // КРИТИЧНО: Проверяем, выбран ли Meest shipping
+                        var isMeestSelected = false;
+                        $('input[name^="shipping_method"]:checked, input[name^="radio-control"]:checked').each(function() {
+                            var value = $(this).val();
+                            if (value && value.indexOf('meest') === 0) {
+                                isMeestSelected = true;
+                            }
+                        });
+                        
+                        // Проверяем, не выбран ли WC Ukr Shipping
+                        var isUkrShippingSelected = false;
+                        $('input[name^="shipping_method"]:checked, input[name^="radio-control"]:checked').each(function() {
+                            var value = $(this).val();
+                            if (value && (value.indexOf('nova_poshta_shipping') === 0 || 
+                                         value.indexOf('wcus_ukrposhta_shipping') === 0 ||
+                                         value.indexOf('wcus_nova_post') === 0 ||
+                                         value.indexOf('wcus_rozetka') === 0)) {
+                                isUkrShippingSelected = true;
+                            }
+                        });
+                        
+                        // Если выбран UKR Shipping, НЕ инициализируем автокомплит Meest
+                        if (isUkrShippingSelected) {
+                            return;
+                        }
+                        
+                        if (!isMeestSelected) {
+                            return;
+                        }
+                        
+                        // Загружаем Select2 если нужно
+                        loadSelect2IfNeeded();
+                        
+                        // Находим поля городов - ТОЛЬКО по ID, так как WooCommerce Blocks использует эти ID
+                        var cityFields = $('#billing-city, #shipping-city');
+                        // Found city fields
+                        
+                        if (cityFields.length === 0) {
+                            return;
+                        }
+                        
+                        cityFields.each(function() {
+                            var $field = $(this);
+                            // Processing field
+                            
+                            // Проверяем, не инициализирован ли уже автокомплит
+                            if ($field.data('meest-autocomplete-init')) {
+                                // Already initialized, skipping
+                                return;
+                            }
+                            
+                            $field.data('meest-autocomplete-init', true);
+                            
+                            // Проверяем, доступен ли selectWoo
+                            // Check selectWoo availability
+                            
+                            if (typeof $.fn.selectWoo === 'function') {
+                                // Using selectWoo
+                                // Преобразуем input в select
+                                var currentValue = $field.val();
+                                var fieldName = $field.attr('name');
+                                var fieldId = $field.attr('id');
+                                var fieldClass = $field.attr('class');
+                                var fieldRequired = $field.attr('required');
+                                
+                                // Создаем select
+                                var $select = $('<select></select>')
+                                    .attr('name', fieldName)
+                                    .attr('id', fieldId)
+                                    .addClass(fieldClass)
+                                    .attr('required', fieldRequired);
+                                
+                                // Заменяем input на select
+                                $field.replaceWith($select);
+                                
+                                // Инициализируем selectWoo с AJAX поиском
+                                $select.selectWoo({
+                                    placeholder: 'Start typing city name...',
+                                    allowClear: true,
+                                    width: '100%',
+                                    minimumInputLength: 2,
+                                    dropdownCssClass: 'meest-city-dropdown',
+                                    ajax: {
+                                        url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                                        type: 'POST',
+                                        dataType: 'json',
+                                        delay: 250,
+                                        data: function(params) {
+                                            return {
+                                                action: 'meest_get_cities',
+                                                search: params.term
+                                            };
+                                        },
+                                        processResults: function(response) {
+                                            if (response.success && response.data) {
+                                                return {
+                                                    results: response.data
+                                                };
+                                            }
+                                            return { results: [] };
+                                        },
+                                        cache: true
+                                    }
+                                });
+                                
+                                
+                                // Если было значение, добавляем его как option
+                                if (currentValue) {
+                                    var $option = $('<option></option>')
+                                        .val(currentValue)
+                                        .text(currentValue)
+                                        .attr('selected', 'selected');
+                                    $select.append($option).trigger('change');
+                                }
+                            } else {
+                                // Using custom dropdown fallback
+                                // Создаем кастомный выпадающий список
+                                var dropdownId = 'meest-cities-dropdown-' + $field.attr('id');
+                                
+                                // Удаляем старый dropdown если есть
+                                $('#' + dropdownId).remove();
+                                
+                                // Оборачиваем поле в контейнер с position: relative
+                                if (!$field.parent().hasClass('meest-field-wrapper')) {
+                                    $field.wrap('<div class="meest-field-wrapper" style="position: relative;"></div>');
+                                }
+                                
+                                // Создаем контейнер для dropdown
+                                var $dropdown = $('<div></div>')
+                                    .attr('id', dropdownId)
+                                    .addClass('meest-custom-dropdown')
+                                    .css({
+                                        'position': 'absolute',
+                                        'top': '100%',
+                                        'left': '0',
+                                        'right': '0',
+                                        'background': '#fff',
+                                        'border': '1px solid #ddd',
+                                        'border-radius': '4px',
+                                        'max-height': '200px',
+                                        'overflow-y': 'auto',
+                                        'z-index': '999999',
+                                        'display': 'none',
+                                        'margin-top': '2px',
+                                        'box-shadow': '0 2px 8px rgba(0,0,0,0.15)'
+                                    });
+                                
+                                // Добавляем dropdown ПОСЛЕ поля (внутри wrapper)
+                                $field.parent().append($dropdown);
+                                
+                                // Custom dropdown created
+                                
+                                // При фокусе на поле - показываем dropdown если есть выбранный город
+                                $field.off('focus.meest-city').on('focus.meest-city', function() {
+                                    var selectedCity = $(this).data('selected-city');
+                                    if (selectedCity) {
+                                        // Если город уже выбран, не показываем dropdown
+                                        // Пользователь может начать вводить новое значение
+                                    }
+                                });
+                                
+                                // Загружаем города при вводе
+                                $field.off('input.meest-city').on('input.meest-city', function() {
+                                    var searchTerm = $(this).val();
+                                    var selectedCity = $(this).data('selected-city');
+                                    
+                                    // Если пользователь начал вводить что-то новое, очищаем выбранный город
+                                    if (selectedCity && searchTerm !== selectedCity) {
+                                        $(this).removeData('selected-city');
+                                    }
+                                    
+                                    if (searchTerm.length < 2) {
+                                        $dropdown.hide();
+                                        return;
+                                    }
+                                    
+                                    $.ajax({
+                                        url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                                        type: 'POST',
+                                        data: {
+                                            action: 'meest_get_cities',
+                                            search: searchTerm
+                                        },
+                                        success: function(response) {
+                                            if (response.success && response.data && response.data.length > 0) {
+                                                // Очищаем и заполняем dropdown
+                                                $dropdown.empty();
+                                                response.data.forEach(function(city) {
+                                                    var $item = $('<div></div>')
+                                                        .addClass('meest-dropdown-item')
+                                                        .text(city.text)
+                                                        .data('city-id', city.id)
+                                                        .css({
+                                                            'padding': '8px 12px',
+                                                            'cursor': 'pointer',
+                                                            'border-bottom': '1px solid #f0f0f0',
+                                                            'font-size': '14px'
+                                                        })
+                                                        .hover(
+                                                            function() { $(this).css('background', '#f5f5f5'); },
+                                                            function() { $(this).css('background', '#fff'); }
+                                                        )
+                                                        .on('click', function(e) {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            
+                                                            var fieldId = $field.attr('id');
+                                                            var nativeField = document.getElementById(fieldId);
+                                                            
+                                                                    // Clicking city
+                                                            
+                                                            if (nativeField) {
+                                                                // Устанавливаем значение для React-контролируемых полей
+                                                                // Сначала получаем дескриптор свойства
+                                                                var nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+                                                                    window.HTMLInputElement.prototype, 
+                                                                    'value'
+                                                                ).set;
+                                                                
+                                                                // Устанавливаем значение через нативный setter
+                                                                nativeInputValueSetter.call(nativeField, city.text);
+                                                                
+                                                                // Создаем события для React
+                                                                var inputEvent = new Event('input', { bubbles: true });
+                                                                var changeEvent = new Event('change', { bubbles: true });
+                                                                
+                                                                // Триггерим события
+                                                                nativeField.dispatchEvent(inputEvent);
+                                                                nativeField.dispatchEvent(changeEvent);
+                                                                
+                                                                // React value set
+                                                                
+                                                                // Фокусируем и сразу убираем фокус
+                                                                setTimeout(function() {
+                                                                    nativeField.focus();
+                                                                    setTimeout(function() {
+                                                                        nativeField.blur();
+                                                                    }, 10);
+                                                                }, 10);
+                                                                
+                                                                // Сохраняем в jQuery data
+                                                                $('#' + fieldId).data('selected-city', city.text);
+                                                                $('#' + fieldId).data('selected-city-id', city.id);
+                                                            }
+                                                            
+                                                            $dropdown.hide();
+                                                            // City selected and saved
+                                                            
+                                                            // Загружаем branches или streets автоматически
+                                                            setTimeout(function() {
+                                                                loadBranchesOrStreets(city.id);
+                                                            }, 100);
+                                                        });
+                                                    $dropdown.append($item);
+                                                });
+                                                
+                                                // Показываем dropdown (он уже привязан к полю)
+                                                $dropdown.show();
+                                                        // Dropdown shown under field
+                                            } else {
+                                                $dropdown.hide();
+                                            }
+                                        },
+                                        error: function(xhr, status, error) {
+                                            $dropdown.hide();
+                                        }
+                                    });
+                                });
+                                
+                                // Скрываем dropdown при клике вне поля
+                                $(document).on('click.meest-dropdown-' + dropdownId, function(e) {
+                                    if (!$(e.target).closest('#' + $field.attr('id')).length && !$(e.target).closest('#' + dropdownId).length) {
+                                        $dropdown.hide();
+                                    }
+                                });
+                                
+                                // Скрываем dropdown при потере фокуса (с задержкой для клика по элементу)
+                                $field.on('blur', function() {
+                                    setTimeout(function() {
+                                        if (!$dropdown.is(':hover')) {
+                                            $dropdown.hide();
+                                        }
+                                    }, 200);
+                                });
+                                
+                                // Скрываем dropdown при прокрутке/ресайзе
+                                $(window).on('scroll.meest-dropdown-' + dropdownId + ' resize.meest-dropdown-' + dropdownId, function() {
+                                    $dropdown.hide();
+                                });
+                            }
+                        });
+                    }
+                    
+                    // Инициализируем при загрузке
+                    setTimeout(initCityAutocomplete, 500);
+                    
+                    // Автоматическая загрузка branches/streets при загрузке страницы
+                    // Ограниченное количество попыток для предотвращения множественных вызовов
+                    setTimeout(checkAndLoadSavedData, 500);
+                    setTimeout(checkAndLoadSavedData, 1500);
+                    
+                    // Дополнительная проверка при полной загрузке DOM
+                    $(document).ready(function() {
+                        setTimeout(checkAndLoadSavedData, 1000);
+                    });
+                    
+                    // Переинициализируем при обновлении checkout
+                    $(document.body).on('updated_checkout updated_wc_block wc-blocks_checkout_updated', function() {
+                        setTimeout(initCityAutocomplete, 300);
+                        setTimeout(checkAndLoadSavedData, 1000);
+                    });
+                    
+                    // При изменении метода доставки
+                    $(document).on('change', 'input[name^="shipping_method"], input[name^="radio-control"]', function() {
+                        setTimeout(initCityAutocomplete, 300);
+                        setTimeout(checkAndLoadSavedData, 1000);
+                        
+                        // Дополнительная проверка: если выбран Meest shipping
+                        var value = $(this).val();
+                        if (value && value.indexOf('meest') === 0) {
+                            setTimeout(function() {
+                                var cityId = $('#shipping-city').data('selected-city-id');
+                                var cityValue = $('#shipping-city').val();
+                                
+                                if (cityId) {
+                                    // Если city_id есть, загружаем данные
+                                    loadBranchesOrStreets(cityId);
+                                } else if (cityValue && cityValue.length > 0) {
+                                    // Если city_id нет, но город заполнен, ищем его
+                                    checkCityField('#shipping-city');
+                                }
+                            }, 1000);
+                        }
+                    });
+                    
+                    // Флаг для предотвращения множественных вызовов
+                    var isLoadingData = false;
+                    var lastLoadedCityId = null;
+                    
+                    // Функция для проверки и загрузки сохраненных данных
+                    function checkAndLoadSavedData() {
+                        // Предотвращаем множественные одновременные вызовы
+                        if (isLoadingData) {
+                            return;
+                        }
+                        
+                        var $cityField = $('#shipping-city');
+                        var cityValue = $cityField.val();
+                        
+                        // Проверяем, есть ли значение в поле города
+                        if (!cityValue || cityValue.length < 2) {
+                            return;
+                        }
+                        
+                        // Извлекаем название города из полного адреса (берем первое слово до запятой)
+                        var cityName = cityValue.split(',')[0].trim();
+                        
+                        // Пробуем получить city_id
+                        var cityId = $cityField.data('selected-city-id') || $cityField.attr('data-city-id');
+                        
+                        if (cityId) {
+                            // Если данные для этого города уже загружены, пропускаем
+                            if (lastLoadedCityId === cityId) {
+                                return;
+                            }
+                            
+                            // Если city_id уже есть, проверяем загружены ли данные
+                            var $branchSelect = $('#shipping_meest_branch_id');
+                            var $streetSelect = $('#shipping_meest_street_id');
+                            
+                            var branchOptions = $branchSelect.find('option').length;
+                            var streetOptions = $streetSelect.find('option').length;
+                            
+                            // Если select'ы пустые (только placeholder), загружаем данные
+                            if (branchOptions <= 1 && streetOptions <= 1) {
+                                isLoadingData = true;
+                                lastLoadedCityId = cityId;
+                                loadBranchesOrStreets(cityId);
+                                // Сбрасываем флаг через 2 секунды
+                                setTimeout(function() { isLoadingData = false; }, 2000);
+                            }
+                        } else {
+                            // Если city_id нет, ищем город через AJAX по короткому имени
+                            isLoadingData = true;
+                            searchAndLoadCity(cityName);
+                            // Сбрасываем флаг через 2 секунды
+                            setTimeout(function() { isLoadingData = false; }, 2000);
+                        }
+                    }
+                    
+                    // Функция для поиска города и загрузки данных
+                    function searchAndLoadCity(cityName) {
+                        
+                        $.ajax({
+                            url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                            type: 'POST',
+                            data: {
+                                action: 'meest_get_cities',
+                                search: cityName
+                            },
+                            success: function(response) {
+                                
+                                if (response.success && response.data && response.data.length > 0) {
+                                    
+                                    // Берем первый найденный город
+                                    var city = response.data[0];
+                                    
+                                    // Сохраняем city_id
+                                    var $cityField = $('#shipping-city');
+                                    $cityField.data('selected-city-id', city.id);
+                                    $cityField.attr('data-city-id', city.id);
+                                    
+                                    
+                                    // Загружаем данные
+                                    loadBranchesOrStreets(city.id);
+                                } else {
+                                }
+                            },
+                            error: function(xhr, status, error) {
+                            }
+                        });
+                        
+                    }
+                    
+                    // Функция для проверки конкретного поля города
+                    function checkCityField(fieldSelector) {
+                        
+                        var $cityField = $(fieldSelector);
+                        var cityValue = $cityField.val();
+                        
+                        
+                        // Проверяем, что поле существует и имеет значение
+                        if ($cityField.length === 0 || !cityValue || cityValue.length < 2) {
+                            return;
+                        }
+                        
+                        // Проверяем, есть ли уже city_id
+                        var cityId = $cityField.data('selected-city-id') || $cityField.attr('data-city-id');
+                        
+                        if (!cityId) {
+                            
+                            // Ищем город по названию через AJAX
+                            $.ajax({
+                                url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                                type: 'POST',
+                                data: {
+                                    action: 'meest_get_cities',
+                                    search: cityValue
+                                },
+                                success: function(response) {
+                                    
+                                    if (response.success && response.data && response.data.length > 0) {
+                                        
+                                        // Ищем точное совпадение
+                                        var exactMatch = response.data.find(function(city) {
+                                            return city.text.toLowerCase() === cityValue.toLowerCase();
+                                        });
+                                        
+                                        // Если точного совпадения нет, берем первый
+                                        var city = exactMatch || response.data[0];
+                                        
+                                        
+                                        $cityField.data('selected-city-id', city.id);
+                                        $cityField.data('selected-city', city.text);
+                                        
+                                        // ВАЖНО: Также сохраняем в атрибут для надежности
+                                        $cityField.attr('data-city-id', city.id);
+                                        
+                                        
+                                        // Загружаем branches/streets только для shipping-city
+                                        if (fieldSelector === '#shipping-city') {
+                                            setTimeout(function() {
+                                                loadBranchesOrStreets(city.id);
+                                            }, 100);
+                                        }
+                                    } else {
+                                    }
+                                },
+                                error: function(xhr, status, error) {
+                                }
+                            });
+                        } else {
+                            // Если city_id уже есть, сразу загружаем данные (только для shipping-city)
+                            if (fieldSelector === '#shipping-city') {
+                                loadBranchesOrStreets(cityId);
+                            }
+                        }
+                        
+                    }
+                    
+                    // Функция для загрузки branches или streets
+                    function loadBranchesOrStreets(cityId) {
+                        
+                        // Если cityId не передан, пробуем получить из поля
+                        if (!cityId) {
+                            var $cityField = $('#shipping-city');
+                            cityId = $cityField.data('selected-city-id') || $cityField.attr('data-city-id');
+                        }
+                        
+                        // Определяем тип доставки (branch или address)
+                        var deliveryType = $('input[name="shipping_delivery_type"]:checked').val();
+                        
+                        // Если cityId есть, загружаем данные
+                        if (cityId) {
+                            if (!deliveryType) {
+                                // Загружаем branches по умолчанию
+                                loadBranches(cityId);
+                                // Также загружаем streets на всякий случай
+                                setTimeout(function() {
+                                    loadStreets(cityId);
+                                }, 200);
+                            } else if (deliveryType === 'branch') {
+                                loadBranches(cityId);
+                            } else if (deliveryType === 'poshtomat') {
+                                loadPoshtomats(cityId);
+                            } else if (deliveryType === 'address') {
+                                loadStreets(cityId);
+                            }
+                        } else {
+                        }
+                        
+                    }
+                    
+                    // Флаги для предотвращения повторных AJAX запросов
+                    var isLoadingBranches = false;
+                    var isLoadingStreets = false;
+                    var lastBranchCityId = null;
+                    var lastStreetCityId = null;
+                    
+                    // Загрузка отделений
+                    function loadBranches(cityId) {
+                        
+                        var $branchSelect = $('#shipping_meest_branch_id');
+                        
+                        if ($branchSelect.length === 0) {
+                            return;
+                        }
+                        
+                        // Предотвращаем повторную загрузку для того же города
+                        if (isLoadingBranches || lastBranchCityId === cityId) {
+                            return;
+                        }
+                        
+                        isLoadingBranches = true;
+                        lastBranchCityId = cityId;
+                        
+                        // Проверяем доступность selectWoo или select2
+                        if (typeof $.fn.selectWoo === 'function') {
+                            // Инициализируем selectWoo с AJAX
+                            $branchSelect.selectWoo({
+                                placeholder: 'Start typing branch name or number...',
+                                allowClear: true,
+                                width: '100%',
+                                minimumInputLength: 0,
+                                ajax: {
+                                    url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                                    type: 'POST',
+                                    dataType: 'json',
+                                    delay: 250,
+                                    data: function(params) {
+                                        return {
+                                            action: 'meest_get_branches',
+                                            city_id: cityId,
+                                            search: params.term || ''
+                                        };
+                                    },
+                                    processResults: function(response) {
+                                        if (response.success && response.data) {
+                                            return { results: response.data };
+                                        }
+                                        return { results: [] };
+                                    },
+                                    cache: true
+                                }
+                            });
+                            
+                            // Триггерим открытие для загрузки данных
+                            $branchSelect.selectWoo('open');
+                            setTimeout(function() {
+                                $branchSelect.selectWoo('close');
+                                isLoadingBranches = false; // Сбрасываем флаг
+                            }, 100);
+                        } else if (typeof $.fn.select2 === 'function') {
+                            // Инициализируем select2 с AJAX
+                            $branchSelect.select2({
+                                placeholder: 'Start typing branch name or number...',
+                                allowClear: true,
+                                width: '100%',
+                                minimumInputLength: 0,
+                                ajax: {
+                                    url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                                    type: 'POST',
+                                    dataType: 'json',
+                                    delay: 250,
+                                    data: function(params) {
+                                        return {
+                                            action: 'meest_get_branches',
+                                            city_id: cityId,
+                                            search: params.term || ''
+                                        };
+                                    },
+                                    processResults: function(response) {
+                                        if (response.success && response.data) {
+                                            return { results: response.data };
+                                        }
+                                        return { results: [] };
+                                    },
+                                    cache: true
+                                }
+                            });
+                            
+                            // Триггерим открытие для загрузки данных
+                            $branchSelect.select2('open');
+                            setTimeout(function() {
+                                $branchSelect.select2('close');
+                                isLoadingBranches = false; // Сбрасываем флаг
+                            }, 100);
+                        } else {
+                            // Fallback: загружаем данные через AJAX и заполняем select
+                            loadBranchesFallback(cityId, $branchSelect);
+                        }
+                    }
+                    
+                    // Fallback для загрузки отделений без selectWoo
+                    function loadBranchesFallback(cityId, $select) {
+                        
+                        $.ajax({
+                            url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                            type: 'POST',
+                            data: {
+                                action: 'meest_get_branches',
+                                city_id: cityId,
+                                search: ''
+                            },
+                            success: function(response) {
+                                if (response.success && response.data) {
+                                    // Очищаем select
+                                    $select.empty();
+                                    
+                                    // Добавляем placeholder
+                                    $select.append('<option value="">Select a branch</option>');
+                                    
+                                    // Добавляем отделения
+                                    response.data.forEach(function(branch) {
+                                        $select.append('<option value="' + branch.id + '">' + branch.text + '</option>');
+                                    });
+                                    
+                                    // Инициализируем Select2/SelectWoo для поиска
+                                    setTimeout(function() {
+                                        if (typeof $.fn.selectWoo === 'function') {
+                                            $select.selectWoo({
+                                                placeholder: 'Select a branch',
+                                                allowClear: true,
+                                                width: '100%'
+                                            });
+                                        } else if (typeof $.fn.select2 === 'function') {
+                                            $select.select2({
+                                                placeholder: 'Select a branch',
+                                                allowClear: true,
+                                                width: '100%'
+                                            });
+                                        } else {
+                                            // Загружаем Select2 из CDN если не доступен
+                                            if (!window.select2Loaded) {
+                                                window.select2Loaded = true;
+                                                var link = document.createElement('link');
+                                                link.rel = 'stylesheet';
+                                                link.href = 'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css';
+                                                document.head.appendChild(link);
+                                                
+                                                $.getScript('https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js', function() {
+                                                    $select.select2({
+                                                        placeholder: 'Select a branch',
+                                                        allowClear: true,
+                                                        width: '100%'
+                                                    });
+                                                });
+                                            }
+                                        }
+                                        isLoadingBranches = false; // Сбрасываем флаг
+                                    }, 100);
+                                }
+                            },
+                            error: function(xhr, status, error) {
+                                isLoadingBranches = false; // Сбрасываем флаг при ошибке
+                            }
+                        });
+                    }
+                    
+                    // Загрузка поштоматов
+                    var isLoadingPoshtomats = false;
+                    var lastPoshtomatCityId = null;
+                    
+                    function loadPoshtomats(cityId) {
+                        var $poshtomatSelect = $('#shipping_meest_poshtomat_id');
+                        
+                        if ($poshtomatSelect.length === 0) {
+                            return;
+                        }
+                        
+                        // Предотвращаем повторную загрузку для того же города
+                        if (isLoadingPoshtomats || lastPoshtomatCityId === cityId) {
+                            return;
+                        }
+                        
+                        isLoadingPoshtomats = true;
+                        lastPoshtomatCityId = cityId;
+                        
+                        // Проверяем доступность selectWoo или select2
+                        if (typeof $.fn.selectWoo === 'function' || typeof $.fn.select2 === 'function') {
+                            var selectMethod = typeof $.fn.selectWoo === 'function' ? 'selectWoo' : 'select2';
+                            
+                            // Инициализируем с AJAX
+                            $poshtomatSelect[selectMethod]({
+                                placeholder: 'Select a poshtomat',
+                                allowClear: true,
+                                width: '100%',
+                                ajax: {
+                                    url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                                    dataType: 'json',
+                                    delay: 250,
+                                    data: function(params) {
+                                        return {
+                                            action: 'meest_address_poshtomat',
+                                            city: cityId,
+                                            text: params.term || ''
+                                        };
+                                    },
+                                    processResults: function(response) {
+                                        if (response && Array.isArray(response)) {
+                                            return {
+                                                results: response.map(function(item) {
+                                                    return {
+                                                        id: item.id,
+                                                        text: item.text
+                                                    };
+                                                })
+                                            };
+                                        }
+                                        return { results: [] };
+                                    },
+                                    cache: true
+                                }
+                            });
+                            
+                            // Триггерим открытие для загрузки данных
+                            $poshtomatSelect[selectMethod]('open');
+                            setTimeout(function() {
+                                $poshtomatSelect[selectMethod]('close');
+                                isLoadingPoshtomats = false;
+                            }, 100);
+                        } else {
+                            // Fallback: загружаем данные через AJAX и заполняем select
+                            loadPoshtomatsFallback(cityId, $poshtomatSelect);
+                        }
+                    }
+                    
+                    // Fallback для загрузки поштоматов без selectWoo
+                    function loadPoshtomatsFallback(cityId, $select) {
+                        $.ajax({
+                            url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                            type: 'POST',
+                            data: {
+                                action: 'meest_address_poshtomat',
+                                city: cityId,
+                                text: ''
+                            },
+                            success: function(response) {
+                                if (response && Array.isArray(response)) {
+                                    // Очищаем select
+                                    $select.empty();
+                                    
+                                    // Добавляем placeholder
+                                    $select.append('<option value="">Select a poshtomat</option>');
+                                    
+                                    // Добавляем поштоматы
+                                    response.forEach(function(poshtomat) {
+                                        $select.append('<option value="' + poshtomat.id + '">' + poshtomat.text + '</option>');
+                                    });
+                                    
+                                    // Инициализируем Select2/SelectWoo для поиска
+                                    setTimeout(function() {
+                                        if (typeof $.fn.selectWoo === 'function') {
+                                            $select.selectWoo({
+                                                placeholder: 'Select a poshtomat',
+                                                allowClear: true,
+                                                width: '100%'
+                                            });
+                                        } else if (typeof $.fn.select2 === 'function') {
+                                            $select.select2({
+                                                placeholder: 'Select a poshtomat',
+                                                allowClear: true,
+                                                width: '100%'
+                                            });
+                                        }
+                                        isLoadingPoshtomats = false;
+                                    }, 100);
+                                }
+                            },
+                            error: function(xhr, status, error) {
+                                isLoadingPoshtomats = false;
+                            }
+                        });
+                    }
+                    
+                    // Загрузка улиц
+                    function loadStreets(cityId) {
+                        
+                        var $streetSelect = $('#shipping_meest_street_id');
+                        
+                        if ($streetSelect.length === 0) {
+                            return;
+                        }
+                        
+                        // Предотвращаем повторную загрузку для того же города
+                        if (isLoadingStreets || lastStreetCityId === cityId) {
+                            return;
+                        }
+                        
+                        isLoadingStreets = true;
+                        lastStreetCityId = cityId;
+                        
+                        // Проверяем доступность selectWoo или select2
+                        if (typeof $.fn.selectWoo === 'function') {
+                            // Инициализируем selectWoo с AJAX
+                            $streetSelect.selectWoo({
+                                placeholder: 'Start typing street name...',
+                                allowClear: true,
+                                width: '100%',
+                                minimumInputLength: 2,
+                                ajax: {
+                                    url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                                    type: 'POST',
+                                    dataType: 'json',
+                                    delay: 250,
+                                    data: function(params) {
+                                        return {
+                                            action: 'meest_get_streets',
+                                            city_id: cityId,
+                                            search: params.term || ''
+                                        };
+                                    },
+                                    processResults: function(response) {
+                                        if (response.success && response.data) {
+                                            return { results: response.data };
+                                        }
+                                        return { results: [] };
+                                    },
+                                    cache: true
+                                }
+                            });
+                            // Сбрасываем флаг после инициализации
+                            setTimeout(function() {
+                                isLoadingStreets = false;
+                            }, 100);
+                        } else if (typeof $.fn.select2 === 'function') {
+                            // Инициализируем select2 с AJAX
+                            $streetSelect.select2({
+                                placeholder: 'Start typing street name...',
+                                allowClear: true,
+                                width: '100%',
+                                minimumInputLength: 2,
+                                ajax: {
+                                    url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                                    type: 'POST',
+                                    dataType: 'json',
+                                    delay: 250,
+                                    data: function(params) {
+                                        return {
+                                            action: 'meest_get_streets',
+                                            city_id: cityId,
+                                            search: params.term || ''
+                                        };
+                                    },
+                                    processResults: function(response) {
+                                        if (response.success && response.data) {
+                                            return { results: response.data };
+                                        }
+                                        return { results: [] };
+                                    },
+                                    cache: true
+                                }
+                            });
+                            // Сбрасываем флаг после инициализации
+                            setTimeout(function() {
+                                isLoadingStreets = false;
+                            }, 100);
+                        } else {
+                            // Fallback: загружаем данные через AJAX и заполняем select
+                            loadStreetsFallback(cityId, $streetSelect);
+                        }
+                    }
+                    
+                    // Fallback для загрузки улиц без selectWoo
+                    function loadStreetsFallback(cityId, $select) {
+                        $.ajax({
+                            url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                            type: 'POST',
+                            data: {
+                                action: 'meest_get_streets',
+                                city_id: cityId,
+                                search: ''
+                            },
+                            success: function(response) {
+                                if (response.success && response.data) {
+                                    // Очищаем select
+                                    $select.empty();
+                                    
+                                    // Добавляем placeholder
+                                    $select.append('<option value="">Select a street</option>');
+                                    
+                                    // Добавляем улицы
+                                    response.data.forEach(function(street) {
+                                        $select.append('<option value="' + street.id + '">' + street.text + '</option>');
+                                    });
+                                    
+                                    // Инициализируем Select2/SelectWoo для поиска
+                                    setTimeout(function() {
+                                        if (typeof $.fn.selectWoo === 'function') {
+                                            $select.selectWoo({
+                                                placeholder: 'Select a street',
+                                                allowClear: true,
+                                                width: '100%'
+                                            });
+                                        } else if (typeof $.fn.select2 === 'function') {
+                                            $select.select2({
+                                                placeholder: 'Select a street',
+                                                allowClear: true,
+                                                width: '100%'
+                                            });
+                                        } else {
+                                            // Загружаем Select2 из CDN если не доступен
+                                            if (!window.select2Loaded) {
+                                                window.select2Loaded = true;
+                                                var link = document.createElement('link');
+                                                link.rel = 'stylesheet';
+                                                link.href = 'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css';
+                                                document.head.appendChild(link);
+                                                
+                                                $.getScript('https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js', function() {
+                                                    $select.select2({
+                                                        placeholder: 'Select a street',
+                                                        allowClear: true,
+                                                        width: '100%'
+                                                    });
+                                                });
+                                            }
+                                        }
+                                        isLoadingStreets = false; // Сбрасываем флаг
+                                    }, 100);
+                                }
+                            },
+                            error: function(xhr, status, error) {
+                                isLoadingStreets = false; // Сбрасываем флаг при ошибке
+                            }
+                        });
+                    }
+                    
+                    // При изменении типа доставки (branch/address)
+                    $(document).on('change', 'input[name="shipping_delivery_type"]', function() {
+                        // Пробуем получить city_id из разных источников
+                        var $cityField = $('#shipping-city');
+                        var cityId = $cityField.data('selected-city-id') || $cityField.attr('data-city-id');
+                        
+                        if (cityId) {
+                            // Если city_id есть, просто загружаем нужные данные
+                            loadBranchesOrStreets(cityId);
+                        } else {
+                            // Если city_id нет, запускаем поиск города
+                            var cityValue = $cityField.val();
+                            if (cityValue && cityValue.length > 0) {
+                                // Проверяем время последнего поиска
+                                var lastSearchTime = $cityField.data('last-search-time') || 0;
+                                var currentTime = Date.now();
+                                
+                                // Если прошло больше 2 секунд, ищем заново
+                                if (currentTime - lastSearchTime > 2000) {
+                                    $cityField.data('last-search-time', currentTime);
+                                    checkCityField('#shipping-city');
+                                }
+                            }
+                        }
+                    });
+                    
+                    // При изменении значения поля города (если пользователь вручную изменил)
+                    $(document).on('input change', '#shipping-city, #billing-city', function() {
+                        var $field = $(this);
+                        var cityValue = $field.val();
+                        
+                        // Если значение изменилось, очищаем сохраненные данные
+                        var savedCity = $field.data('selected-city');
+                        if (savedCity && savedCity !== cityValue) {
+                            $field.removeData('selected-city-id');
+                            $field.removeData('selected-city');
+                            
+                            // Если это shipping-city, проверяем заново
+                            if ($field.attr('id') === 'shipping-city') {
+                                setTimeout(function() {
+                                    checkCityField('#shipping-city');
+                                }, 500);
+                            }
+                        }
+                    });
+                });
+                
+                // Добавляем стили для выпадающего списка
+                jQuery(document).ready(function($) {
+                    $('head').append('<style>.meest-city-dropdown { z-index: 999999 !important; } .select2-container { z-index: 999999 !important; } .select2-dropdown { z-index: 999999 !important; }</style>');
+                    
+                    // Принудительно открываем Select2 вниз, а не вверх
+                    $(document).on('select2:opening', function(e) {
+                        var $target = $(e.target);
+                        // Проверяем, что это поле Meest
+                        if ($target.attr('id') && $target.attr('id').indexOf('meest') !== -1) {
+                            // Устанавливаем позицию dropdown
+                            setTimeout(function() {
+                                var $dropdown = $('.select2-dropdown');
+                                if ($dropdown.hasClass('select2-dropdown--above')) {
+                                    $dropdown.removeClass('select2-dropdown--above').addClass('select2-dropdown--below');
+                                }
+                            }, 1);
+                        }
+                    });
+                });
+                </script>
+                <?php
+            }
+        });
+    }
+
+    public function filter_checkout_posted_data($data)
+    {
+        // КРИТИЧНО: Заполняем стандартные поля ТОЛЬКО если выбран Meest
+        // Проверяем через новый метод isMeestShippingSelected()
+        if (!self::isMeestShippingSelected()) {
+            return $data; // Не трогаем данные, если выбран другой метод
+        }
+        
+        if (!empty($data['shipping_method'][0]) && strpos($data['shipping_method'][0], MEEST_PLUGIN_NAME) === 0) {
+            $request = new Request($_POST);
+            
+            $this->fillData($data, 'billing', $request, 'billing');
+
+            !empty($data['ship_to_different_address'])
+                ? $this->fillData($data, 'shipping', $request, 'shipping')
+                : $this->fillData($data, 'shipping', $request, 'billing');
+        }
+
+        return $data;
+    }
+
+    private function fillData(array &$data, string $type, $request, string $requestType)
+    {
+        $requestData = $request->all();
+        
+
+        if (!empty($requestData["{$requestType}_branch_id"])) {
+            $branchData = BranchRepository::instance()->getById($requestData["{$requestType}_branch_id"]);
+            $state = $branchData['region'];
+            $city = $branchData['city'];
+            $address1 = $branchData['street'] . ', ' .$branchData['building'];
+            $address2 = $branchData['flat'];
+            $data["{$type}_postcode"] = $branchData['zipCode'];
+            
+        } else {
+            $cityData = CityRepository::instance()->getById($request->{"{$requestType}_city_id"});
+            $state = $request->{"{$requestType}_region_text"} ?? $cityData['region'];
+            $city = $request->{"{$requestType}_city_text"};
+            $address1 = ($request->{"{$requestType}_street_text"} . ', ' . $request->billing_building);
+            $address2 = $request->{"{$requestType}_flat"};
+            
+        }
+
+        empty($data["{$type}_state"]) && $data["{$type}_state"] = $state;
+        empty($data["{$type}_city"]) && $data["{$type}_city"] = $city;
+        empty($data["{$type}_address_1"]) && $data["{$type}_address_1"] = $address1;
+        empty($data["{$type}_address_2"]) && $data["{$type}_address_2"] = $address2;
+        
+    }
+
+    public function filter_checkout_get_value($value, $input)
+    {
+        $defaults = [
+            'billing_address_1' => '-',
+            'billing_city' => '-',
+            'billing_state'  => '-',
+            'shipping_address_1' => '-',
+            'shipping_city' => '-',
+            'shipping_state' => '-',
+        ];
+
+        return $defaults[$input] ?? $value;
+    }
+
+    // Методы удалены - форма выводится только через wp_footer
+
+    private function checkoutForm($type)
+    {
+        $address = $this->getAddress($type);
+        ?>
+        <style>
+            .meest-checkout-form {
+                background: #fff;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 20px;
+                margin: 15px 0;
+                overflow: visible;
+                min-height: auto;
+            }
+            .meest-checkout-form h3 {
+                margin: 0 0 15px 0;
+                padding: 0 0 10px 0;
+                border-bottom: 1px solid #ddd;
+                font-size: 16px;
+                font-weight: 600;
+                color: #333;
+            }
+            .meest-checkout-form h4 {
+                margin: 10px 0 10px 0;
+                font-size: 14px;
+                font-weight: 600;
+                color: #555;
+            }
+            .meest-checkout-form .form-row {
+                margin-bottom: 12px;
+            }
+            .meest-checkout-form label {
+                font-weight: 500;
+                color: #555;
+                margin-bottom: 5px;
+                display: block;
+                font-size: 14px;
+            }
+            /* Radio buttons и их labels в одну строку */
+            .meest-checkout-form .meest-delivery-type {
+                clear: both;
+            }
+            .meest-checkout-form .meest-delivery-type > label:first-child {
+                display: block;
+                margin-bottom: 8px;
+            }
+            .meest-checkout-form .meest-delivery-type .woocommerce-input-wrapper {
+                display: block;
+            }
+            .meest-checkout-form .meest-delivery-type .woocommerce-input-wrapper label {
+                display: inline-block;
+                margin-right: 20px;
+                margin-bottom: 0;
+                font-weight: normal;
+                cursor: pointer;
+            }
+            .meest-checkout-form input[type="radio"] {
+                margin-right: 6px;
+                vertical-align: middle;
+                cursor: pointer;
+            }
+            .meest-checkout-form input[type="text"],
+            .meest-checkout-form select {
+                width: 100%;
+                padding: 8px 10px;
+                border: 1px solid #ddd;
+                border-radius: 3px;
+                font-size: 14px;
+            }
+            .meest-checkout-form input[type="text"]:focus,
+            .meest-checkout-form select:focus {
+                border-color: #0073aa;
+                outline: none;
+            }
+            .meest-checkout-form .woocommerce-input-wrapper {
+                width: 100%;
+            }
+            .meest-branch-fields,
+            .meest-poshtomat-fields,
+            .meest-address-fields {
+                background: #f9f9f9;
+                padding: 15px;
+                border-radius: 3px;
+                margin-top: 10px;
+                border: 1px solid #e0e0e0;
+                display: none;
+                overflow: visible;
+                min-height: auto;
+            }
+            .meest-branch-fields.active,
+            .meest-poshtomat-fields.active,
+            .meest-address-fields.active {
+                display: block;
+            }
+            /* Building и Flat в одну строку */
+            .meest-checkout-form .form-row-first,
+            .meest-checkout-form .form-row-last,
+            .meest-branch-fields .form-row-first,
+            .meest-branch-fields .form-row-last,
+            .meest-poshtomat-fields .form-row-first,
+            .meest-poshtomat-fields .form-row-last,
+            .meest-address-fields .form-row-first,
+            .meest-address-fields .form-row-last {
+                width: 48% !important;
+                float: left !important;
+                clear: none !important;
+            }
+            .meest-checkout-form .form-row-last,
+            .meest-branch-fields .form-row-last,
+            .meest-poshtomat-fields .form-row-last,
+            .meest-address-fields .form-row-last {
+                float: right !important;
+            }
+            /* Clearfix для float элементов */
+            .meest-checkout-form::after,
+            .meest-branch-fields::after,
+            .meest-poshtomat-fields::after,
+            .meest-address-fields::after {
+                content: "";
+                display: table;
+                clear: both;
+            }
+            /* Принудительные стили для Select2 */
+            .select2-selection__rendered {
+                padding: 5px !important;
+                line-height: 10px !important;
+            }
+            .meest-checkout-form .select2-selection__rendered {
+                padding: 5px !important;
+                line-height: 10px !important;
+            }
+            .meest-branch-fields .select2-selection__rendered,
+            .meest-address-fields .select2-selection__rendered {
+                padding: 5px !important;
+                line-height: 10px !important;
+            }
+            /* Принудительно открываем Select2 вниз, а не вверх */
+            .select2-container--open .select2-dropdown--above {
+                top: 100% !important;
+                bottom: auto !important;
+            }
+            .select2-container--open .select2-dropdown {
+                top: 100% !important;
+                bottom: auto !important;
+            }
+        </style>
+        <div id="<?php echo $type; ?>_meest_form" class="woocommerce-additional-fields meest-checkout-form">
+            <h3><?php _e('Meest Delivery Options', MEEST_PLUGIN_DOMAIN); ?></h3>
+            <?php
+            // Получаем настройки включенных типов доставки
+            $enabled_types = [];
+            if (!empty($this->options['shipping']['delivery_type_branch'])) {
+                $enabled_types['branch'] = __('Delivery to branch', MEEST_PLUGIN_DOMAIN);
+            }
+            if (!empty($this->options['shipping']['delivery_type_poshtomat'])) {
+                $enabled_types['poshtomat'] = __('Delivery to poshtomat', MEEST_PLUGIN_DOMAIN);
+            }
+            if (!empty($this->options['shipping']['delivery_type_address'])) {
+                $enabled_types['address'] = __('Delivery to address', MEEST_PLUGIN_DOMAIN);
+            }
+            
+            // Если ни один тип не включен, показываем все (обратная совместимость)
+            if (empty($enabled_types)) {
+                $enabled_types = [
+                    'branch' => __('Delivery to branch', MEEST_PLUGIN_DOMAIN),
+                    'poshtomat' => __('Delivery to poshtomat', MEEST_PLUGIN_DOMAIN),
+                    'address' => __('Delivery to address', MEEST_PLUGIN_DOMAIN),
+                ];
+            }
+            
+            // Определяем дефолтный тип - первый включенный
+            $default_type = $address['delivery_type'] ?? array_key_first($enabled_types);
+            
+            // Показываем радио-кнопки только если включено больше одного типа
+            if (count($enabled_types) > 1) {
+                woocommerce_form_field("{$type}_delivery_type", [
+                    'label' => __('Delivery type', MEEST_PLUGIN_DOMAIN),
+                    'type' => 'radio',
+                    'id' => "{$type}_meest_delivery_type",
+                    'options' => $enabled_types,
+                    'default' => $default_type,
+                    'required' => true,
+                    'class' => ['meest-delivery-type'],
+                ]);
+            } else {
+                // Если включен только один тип, выводим скрытое поле
+                echo '<input type="hidden" name="' . $type . '_delivery_type" value="' . array_key_first($enabled_types) . '" />';
+            }
+            ?>
+            
+            <!-- Поля для доставки в отделение -->
+            <div id="<?php echo $type; ?>_branch_fields" class="meest-branch-fields">
+                <h4><?php _e('Select Branch', MEEST_PLUGIN_DOMAIN); ?></h4>
+                <?php
+                // Получаем список отделений
+                $branches = $this->getBranches();
+                $branchOptions = ['' => __('Select a branch', MEEST_PLUGIN_DOMAIN)];
+                foreach ($branches as $branch) {
+                    $branchOptions[$branch['id']] = $branch['name'];
+                }
+                
+                woocommerce_form_field("{$type}_branch_id", [
+                    'label' => __('Branch', MEEST_PLUGIN_DOMAIN),
+                    'type' => 'select',
+                    'id' => "{$type}_meest_branch_id",
+                    'options' => $branchOptions,
+                    'default' => $address['branch']['id'] ?? '',
+                    'required' => true,
+                    'class' => ['form-row-wide'],
+                    'input_class' => ['input-text'],
+                ]);
+                echo Html::hiddenTextInput("{$type}_meest_branch_text", "{$type}_branch_text", $address['branch']['text'] ?? '');
+                ?>
+            </div>
+            
+            <!-- Поля для доставки в поштомат -->
+            <div id="<?php echo $type; ?>_poshtomat_fields" class="meest-poshtomat-fields">
+                <h4><?php _e('Select Poshtomat', MEEST_PLUGIN_DOMAIN); ?></h4>
+                <?php
+                woocommerce_form_field("{$type}_poshtomat_id", [
+                    'label' => __('Poshtomat', MEEST_PLUGIN_DOMAIN),
+                    'type' => 'select',
+                    'id' => "{$type}_meest_poshtomat_id",
+                    'options' => [$address['poshtomat']['id'] ?? '' => $address['poshtomat']['text'] ?? __('Select poshtomat', MEEST_PLUGIN_DOMAIN)],
+                    'default' => $address['poshtomat']['id'] ?? '',
+                    'required' => true,
+                    'class' => ['form-row-wide'],
+                    'input_class' => ['input-text'],
+                ]);
+                echo Html::hiddenTextInput("{$type}_meest_poshtomat_text", "{$type}_poshtomat_text", $address['poshtomat']['text'] ?? '');
+                ?>
+            </div>
+            
+            <!-- Поля для доставки по адресу -->
+            <div id="<?php echo $type; ?>_address_fields" class="meest-address-fields">
+                <h4><?php _e('Delivery Address', MEEST_PLUGIN_DOMAIN); ?></h4>
+                <?php
+                woocommerce_form_field("{$type}_street_id", [
+                    'label' => __('Street', MEEST_PLUGIN_DOMAIN),
+                    'type' => 'select',
+                    'id' => "{$type}_meest_street_id",
+                    'options' => [$address['street']['id'] ?? '' => $address['street']['text'] ?? __('Select street', MEEST_PLUGIN_DOMAIN)],
+                    'default' => $address['street']['id'] ?? '',
+                    'required' => true,
+                    'class' => ['form-row-wide'],
+                    'placeholder' => __('Select a street', MEEST_PLUGIN_DOMAIN),
+                    'input_class' => ['input-text'],
+                ]);
+                echo Html::hiddenTextInput("{$type}_meest_street_text", "{$type}_street_text", $address['street']['text'] ?? '');
+
+                woocommerce_form_field("{$type}_building", [
+                    'label' => __('Building', MEEST_PLUGIN_DOMAIN),
+                    'type' => 'text',
+                    'id' => "{$type}_meest_building",
+                    'default' => $address['building'] ?? '',
+                    'required' => true,
+                    'class' => ['form-row-first'],
+                    'input_class' => ['input-text'],
+                ]);
+
+                woocommerce_form_field("{$type}_flat", [
+                    'label' => __('Flat', MEEST_PLUGIN_DOMAIN),
+                    'type' => 'text',
+                    'id' => "{$type}_meest_flat",
+                    'default' => $address['flat'] ?? '',
+                    'required' => true,
+                    'class' => ['form-row-last'],
+                    'input_class' => ['input-text'],
+                ]);
+                ?>
+            </div>
+        </div>
+        
+        <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            // Скрываем форму по умолчанию
+            $('#<?php echo $type; ?>_meest_form').hide();
+            
+            // Функция для показа/скрытия полей Meest
+            function toggleMeestFields() {
+                var isMeestSelected = false;
+                
+                // Проверяем выбранный способ доставки
+                $('input[name^="shipping_method"]:checked, input[name^="radio-control"]:checked').each(function() {
+                    var value = $(this).val();
+                    if (value && value.indexOf('meest') === 0) {
+                        isMeestSelected = true;
+                    }
+                });
+                
+                if (isMeestSelected) {
+                    $('#<?php echo $type; ?>_meest_form').slideDown();
+                    // КРИТИЧНО: Скрываем стандартные поля WooCommerce когда выбран Meest
+                    // Это предотвращает конфликты с WC Ukr Shipping
+                    $('body').addClass('meest-shipping-selected');
+                    $('.woocommerce-billing-fields #billing_city_field, .woocommerce-billing-fields #billing_address_1_field, .woocommerce-billing-fields #billing_address_2_field, .woocommerce-billing-fields #billing_state_field').hide();
+                    $('.woocommerce-shipping-fields #shipping_city_field, .woocommerce-shipping-fields #shipping_address_1_field, .woocommerce-shipping-fields #shipping_address_2_field, .woocommerce-shipping-fields #shipping_state_field').hide();
+                } else {
+                    $('#<?php echo $type; ?>_meest_form').slideUp();
+                    // Показываем стандартные поля обратно
+                    $('body').removeClass('meest-shipping-selected');
+                    $('.woocommerce-billing-fields #billing_city_field, .woocommerce-billing-fields #billing_address_1_field, .woocommerce-billing-fields #billing_address_2_field, .woocommerce-billing-fields #billing_state_field').show();
+                    $('.woocommerce-shipping-fields #shipping_city_field, .woocommerce-shipping-fields #shipping_address_1_field, .woocommerce-shipping-fields #shipping_address_2_field, .woocommerce-shipping-fields #shipping_state_field').show();
+                }
+            }
+            
+            // Функция для показа/скрытия полей в зависимости от типа доставки
+            function toggleDeliveryFields() {
+                var deliveryType = $('input[name="<?php echo $type; ?>_delivery_type"]:checked').val();
+                
+                if (deliveryType === 'branch') {
+                    $('#<?php echo $type; ?>_branch_fields').addClass('active').show();
+                    $('#<?php echo $type; ?>_poshtomat_fields').removeClass('active').hide();
+                    $('#<?php echo $type; ?>_address_fields').removeClass('active').hide();
+                } else if (deliveryType === 'poshtomat') {
+                    $('#<?php echo $type; ?>_branch_fields').removeClass('active').hide();
+                    $('#<?php echo $type; ?>_poshtomat_fields').addClass('active').show();
+                    $('#<?php echo $type; ?>_address_fields').removeClass('active').hide();
+                } else if (deliveryType === 'address') {
+                    $('#<?php echo $type; ?>_branch_fields').removeClass('active').hide();
+                    $('#<?php echo $type; ?>_poshtomat_fields').removeClass('active').hide();
+                    $('#<?php echo $type; ?>_address_fields').addClass('active').show();
+                }
+            }
+            
+            // Инициализация при загрузке страницы
+            toggleMeestFields();
+            toggleDeliveryFields();
+            
+            // Обработчики событий для обновления checkout
+            $(document.body).on('updated_checkout updated_wc_block wc-blocks_checkout_updated', function() {
+                toggleMeestFields();
+                toggleDeliveryFields();
+            });
+            
+            // Обработчик изменения типа доставки
+            $(document).on('change', 'input[name="<?php echo $type; ?>_delivery_type"]', function() {
+                toggleDeliveryFields();
+            });
+            
+            // Обработчики изменения способа доставки
+            $(document).on('change', 'input[name^="shipping_method"], input[name^="radio-control"]', function() {
+                toggleMeestFields();
+            });
+            
+            // Сохраняем текстовые значения из select'ов в скрытые поля
+            $(document).on('change', '#<?php echo $type; ?>_meest_branch_id', function() {
+                var selectedText = $(this).find('option:selected').text();
+                $('input[name="<?php echo $type; ?>_branch_text"]').val(selectedText);
+            });
+            
+            $(document).on('change', '#<?php echo $type; ?>_meest_street_id', function() {
+                var selectedText = $(this).find('option:selected').text();
+                $('input[name="<?php echo $type; ?>_street_text"]').val(selectedText);
+            });
+            
+            // Для Select2/SelectWoo
+            $('#<?php echo $type; ?>_meest_branch_id').on('select2:select selectWoo:select', function(e) {
+                var selectedText = e.params.data.text;
+                $('input[name="<?php echo $type; ?>_branch_text"]').val(selectedText);
+                // Сохраняем в localStorage для Store API
+                saveMeestDataToLocalStorage();
+            });
+            
+            $('#<?php echo $type; ?>_meest_poshtomat_id').on('select2:select selectWoo:select', function(e) {
+                var selectedText = e.params.data.text;
+                $('input[name="<?php echo $type; ?>_poshtomat_text"]').val(selectedText);
+                // Сохраняем в localStorage для Store API
+                saveMeestDataToLocalStorage();
+            });
+            
+            $('#<?php echo $type; ?>_meest_street_id').on('select2:select selectWoo:select', function(e) {
+                var selectedText = e.params.data.text;
+                $('input[name="<?php echo $type; ?>_street_text"]').val(selectedText);
+                // Сохраняем в localStorage для Store API
+                saveMeestDataToLocalStorage();
+            });
+            
+            // Также отслеживаем изменения всех полей Meest
+            $('input[name^="<?php echo $type; ?>_"], select[name^="<?php echo $type; ?>_"]').on('change', function() {
+                saveMeestDataToLocalStorage();
+            });
+            
+            // Функция сохранения данных Meest в localStorage и cookie
+            function saveMeestDataToLocalStorage() {
+                var meestData = {
+                    delivery_type: $('input[name="<?php echo $type; ?>_delivery_type"]:checked').val(),
+                    branch_id: $('#<?php echo $type; ?>_meest_branch_id').val(),
+                    branch_text: $('input[name="<?php echo $type; ?>_branch_text"]').val(),
+                    poshtomat_id: $('#<?php echo $type; ?>_meest_poshtomat_id').val(),
+                    poshtomat_text: $('input[name="<?php echo $type; ?>_poshtomat_text"]').val(),
+                    street_id: $('#<?php echo $type; ?>_meest_street_id').val(),
+                    street_text: $('input[name="<?php echo $type; ?>_street_text"]').val(),
+                    building: $('#<?php echo $type; ?>_meest_building').val(),
+                    flat: $('#<?php echo $type; ?>_meest_flat').val(),
+                    timestamp: new Date().getTime()
+                };
+                
+                // Сохраняем в localStorage
+                localStorage.setItem('meest_checkout_data', JSON.stringify(meestData));
+                
+                // Сохраняем в cookie (для серверной обработки)
+                document.cookie = 'meest_checkout_data=' + encodeURIComponent(JSON.stringify(meestData)) + '; path=/; max-age=3600';
+            }
+            
+            // Сохраняем данные при отправке формы
+            $(document).on('submit', 'form.checkout', function() {
+                saveMeestDataToLocalStorage();
+            });
+            
+            // Для блочного checkout (Store API)
+            $(document).on('click', '.wc-block-components-checkout-place-order-button', function() {
+                saveMeestDataToLocalStorage();
+            });
+            
+            // Отслеживаем событие успешного создания заказа (WooCommerce Blocks)
+            if (typeof wp !== 'undefined' && wp.hooks) {
+                wp.hooks.addAction('experimental__woocommerce_blocks-checkout-submit-after-processing', 'meest', function(args) {
+                    // Получаем номер заказа из args или из DOM
+                    var orderId = null;
+                    if (args && args.orderId) {
+                        orderId = args.orderId;
+                    } else if (args && args.redirectUrl) {
+                        // Пытаемся извлечь order ID из URL
+                        var match = args.redirectUrl.match(/order-received\/(\d+)/);
+                        if (match) {
+                            orderId = match[1];
+                        }
+                    }
+                    
+                    if (orderId) {
+                        sendMeestDataViaAjax(orderId);
+                    }
+                });
+            }
+            
+            // Для классического checkout
+            $(document.body).on('checkout_place_order_success', function(e, result) {
+                if (result && result.order_id) {
+                    sendMeestDataViaAjax(result.order_id);
+                }
+            });
+            
+            // Функция отправки данных через AJAX
+            function sendMeestDataViaAjax(orderId) {
+                var meestData = localStorage.getItem('meest_checkout_data');
+                if (!meestData) {
+                    return;
+                }
+                
+                try {
+                    meestData = JSON.parse(meestData);
+                } catch(e) {
+                    return;
+                }
+                
+                $.ajax({
+                    url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                    type: 'POST',
+                    data: {
+                        action: 'meest_save_order_data',
+                        order_id: orderId,
+                        meest_data: meestData
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            // Очищаем localStorage после успешного сохранения
+                            localStorage.removeItem('meest_checkout_data');
+                            document.cookie = 'meest_checkout_data=; path=/; max-age=0';
+                        }
+                    }
+                });
+            }
+            
+            // Пробуем также перехватить событие после редиректа на страницу "Спасибо"
+            if (window.location.href.indexOf('order-received') !== -1) {
+                var match = window.location.href.match(/order-received\/(\d+)/);
+                if (match) {
+                    var orderId = match[1];
+                    sendMeestDataViaAjax(orderId);
+                }
+            }
+            
+            // Инициализация Select2 для отделений с AJAX загрузкой
+            function initBranchSelect2() {
+                var cityId = $('#<?php echo $type; ?>_meest_city_id').val();
+                if (!cityId) return;
+                
+                var $select = $('#<?php echo $type; ?>_meest_branch_id');
+                
+                // Уничтожаем предыдущий экземпляр select2/selectWoo если есть
+                if ($select.data('select2')) {
+                    $select.select2('destroy');
+                }
+                if ($select.data('selectWoo')) {
+                    $select.selectWoo('destroy');
+                }
+                
+                // Используем selectWoo (WooCommerce версия select2) или обычный select2
+                var selectMethod = $.fn.selectWoo ? 'selectWoo' : 'select2';
+                
+                $select[selectMethod]({
+                    ajax: {
+                        url: meest_data.ajax_url,
+                        dataType: 'json',
+                        delay: 250,
+                        data: function (params) {
+                            return {
+                                action: meest_data.actions.get_branch,
+                                city: cityId,
+                                text: params.term || ''
+                            };
+                        },
+                        processResults: function (data) {
+                            if (data && data.length > 0) {
+                                return {
+                                    results: data.map(function(item) {
+                                        return {
+                                            id: item.id,
+                                            text: item.text
+                                        };
+                                    })
+                                };
+                            }
+                            return { results: [] };
+                        },
+                        cache: true
+                    },
+                    placeholder: '<?php echo __('Select branch', MEEST_PLUGIN_DOMAIN); ?>',
+                    allowClear: true,
+                    minimumInputLength: 0,
+                    width: '100%'
+                });
+            }
+            
+            // Инициализация Select2 для поштоматов с AJAX загрузкой
+            function initPoshtomatSelect2() {
+                var cityId = $('#<?php echo $type; ?>_meest_city_id').val();
+                if (!cityId) return;
+                
+                var $select = $('#<?php echo $type; ?>_meest_poshtomat_id');
+                
+                // Уничтожаем предыдущий экземпляр select2/selectWoo если есть
+                if ($select.data('select2')) {
+                    $select.select2('destroy');
+                }
+                if ($select.data('selectWoo')) {
+                    $select.selectWoo('destroy');
+                }
+                
+                // Используем selectWoo (WooCommerce версия select2) или обычный select2
+                var selectMethod = $.fn.selectWoo ? 'selectWoo' : 'select2';
+                
+                $select[selectMethod]({
+                    ajax: {
+                        url: meest_data.ajax_url,
+                        dataType: 'json',
+                        delay: 250,
+                        data: function (params) {
+                            return {
+                                action: meest_data.actions.get_poshtomat,
+                                city: cityId,
+                                text: params.term || ''
+                            };
+                        },
+                        processResults: function (data) {
+                            if (data && data.length > 0) {
+                                return {
+                                    results: data.map(function(item) {
+                                        return {
+                                            id: item.id,
+                                            text: item.text
+                                        };
+                                    })
+                                };
+                            }
+                            return { results: [] };
+                        },
+                        cache: true
+                    },
+                    placeholder: '<?php echo __('Select poshtomat', MEEST_PLUGIN_DOMAIN); ?>',
+                    allowClear: true,
+                    minimumInputLength: 0,
+                    width: '100%'
+                });
+            }
+            
+            // Инициализируем Select2 при выборе города
+            $(document).on('change', '#<?php echo $type; ?>_meest_city_id', function() {
+                var deliveryType = $('input[name="<?php echo $type; ?>_delivery_type"]:checked').val();
+                
+                if (deliveryType === 'branch') {
+                    initBranchSelect2();
+                } else if (deliveryType === 'poshtomat') {
+                    initPoshtomatSelect2();
+                }
+            });
+            
+            // Инициализируем Select2 при смене типа доставки
+            $(document).on('change', 'input[name="<?php echo $type; ?>_delivery_type"]', function() {
+                var deliveryType = $(this).val();
+                var cityId = $('#<?php echo $type; ?>_meest_city_id').val();
+                
+                if (cityId) {
+                    if (deliveryType === 'branch') {
+                        initBranchSelect2();
+                    } else if (deliveryType === 'poshtomat') {
+                        initPoshtomatSelect2();
+                    }
+                }
+            });
+            
+            // Инициализируем при загрузке если город уже выбран
+            $(document).ready(function() {
+                var cityId = $('#<?php echo $type; ?>_meest_city_id').val();
+                var deliveryType = $('input[name="<?php echo $type; ?>_delivery_type"]:checked').val();
+                
+                if (cityId) {
+                    if (deliveryType === 'branch') {
+                        initBranchSelect2();
+                    } else if (deliveryType === 'poshtomat') {
+                        initPoshtomatSelect2();
+                    }
+                }
+            });
+        });
+        </script>
+        <?php
+    }
+    
+    private function getBranches()
+    {
+        // Возвращаем тестовые данные отделений
+        return [
+            ['id' => '1', 'name' => 'Отделение №1 - Центр города'],
+            ['id' => '2', 'name' => 'Отделение №2 - Торговый центр'],
+            ['id' => '3', 'name' => 'Отделение №3 - Железнодорожный вокзал'],
+            ['id' => '4', 'name' => 'Отделение №4 - Аэропорт'],
+            ['id' => '5', 'name' => 'Отделение №5 - Университет'],
+        ];
+    }
+
+    public function checkoutFields($fields)
+    {
+        // МЕТОД ОТКЛЮЧЕН - не модифицируем стандартные поля checkout
+        // Это предотвращает конфликты с WC Ukr Shipping
+        // Поля будут заполняться через filter_checkout_posted_data
+        return $fields;
+    }
+
+    public static function disableValidateFields(&$fields, $type)
+    {
+        $request = new Request($_POST);
+
+        // Только делаем поля необязательными, НЕ удаляем их полностью
+        // Это позволяет другим плагинам доставки работать корректно
+        if (isset($fields[$type]["{$type}_state"])) {
+            $fields[$type][$type.'_state']['required'] = false;
+            $fields[$type][$type.'_state']['class'][] = 'meest-disabled-field';
+            unset($fields[$type]["{$type}_state"]['validate']);
+        }
+        if (isset($fields[$type]["{$type}_city"])) {
+            $fields[$type][$type.'_city']['required'] = false;
+            $fields[$type][$type.'_city']['class'][] = 'meest-disabled-field';
+        }
+        if (isset($fields[$type]["{$type}_address_1"])) {
+            $fields[$type][$type.'_address_1']['required'] = false;
+            $fields[$type][$type.'_address_1']['class'][] = 'meest-disabled-field';
+        }
+        if (isset($fields[$type]["{$type}_address_2"])) {
+            $fields[$type][$type.'_address_2']['required'] = false;
+            $fields[$type][$type.'_address_2']['class'][] = 'meest-disabled-field';
+        }
+        if (!empty($request->{"{$type}_branch_id"})) {
+            if (isset($fields[$type]["{$type}_postcode"])) {
+                $fields[$type][$type.'_postcode']['required'] = false;
+                $fields[$type][$type.'_postcode']['class'][] = 'meest-disabled-field';
+            }
+        }
+    }
+
+    public function woocommerceCheckoutProcess()
+    {
+        // Проверяем, выбран ли Meest
+        if (!self::isMeestShippingSelected()) {
+            return; // Не обрабатываем, если выбран другой метод
+        }
+        
+        if (self::isMeestShipping()) {
+            $type = self::shipToDifferentAddress();
+
+            $request = new Request($_POST);
+            $address = AddressCustomerResource::make($request->all(), $type);
+            
+            $this->customer->setMeta("{$type}_meest_address", $address);
+        }
+    }
+
+    /**
+     * Сохранение данных Meest в мета заказа
+     */
+    public function updateOrderMeta($order_id, $data)
+    {
+        
+        if (!self::isMeestShipping()) {
+            return;
+        }
+        
+
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            return;
+        }
+
+        // Определяем тип адреса - используем метод из Helper
+        $type = self::shipToDifferentAddress();
+        
+        $request = new Request($_POST);
+        
+        // Временно логируем все POST данные для отладки
+        error_log('Meest POST data: ' . print_r($_POST, true));
+
+        // Сохраняем тип доставки - проверяем разные варианты названий полей
+        $delivery_type = $request->{"{$type}_delivery_type"} ?? 
+                        $request->{"{$type}_meest_delivery_type"} ?? 
+                        ($request->shipping_meest_delivery_type_branch ? 'branch' : 
+                        ($request->shipping_meest_delivery_type_poshtomat ? 'poshtomat' :
+                        ($request->shipping_meest_delivery_type_address ? 'address' : 'branch')));
+        
+        $order->update_meta_data('_meest_delivery_type', $delivery_type);
+
+        // Сохраняем данные отделения, поштомата или адреса
+        if ($delivery_type === 'branch') {
+            // Пробуем разные варианты названий полей для branch
+            $branch_id = $request->{"{$type}_branch_id"} ?? 
+                        $request->{"{$type}_meest_branch_id"} ?? 
+                        $request->shipping_meest_branch_id;
+            
+            $branch_text = $request->{"{$type}_branch_text"} ?? 
+                          $request->{"{$type}_meest_branch_text"} ?? '';
+            
+            if ($branch_id) {
+                $order->update_meta_data('_meest_branch_id', $branch_id);
+                $order->update_meta_data('_meest_branch_text', $branch_text);
+            }
+        } elseif ($delivery_type === 'poshtomat') {
+            // Пробуем разные варианты названий полей для poshtomat
+            $poshtomat_id = $request->{"{$type}_poshtomat_id"} ?? 
+                           $request->{"{$type}_meest_poshtomat_id"} ?? 
+                           $request->shipping_meest_poshtomat_id ??
+                           $request->shipping_poshtomat_id;
+            
+            $poshtomat_text = $request->{"{$type}_poshtomat_text"} ?? 
+                             $request->{"{$type}_meest_poshtomat_text"} ?? 
+                             $request->shipping_poshtomat_text ?? '';
+            
+            if ($poshtomat_id) {
+                $order->update_meta_data('_meest_poshtomat_id', $poshtomat_id);
+                $order->update_meta_data('_meest_poshtomat_text', $poshtomat_text);
+            }
+        } else {
+            // Пробуем разные варианты названий полей для address
+            $street_id = $request->{"{$type}_street_id"} ?? 
+                        $request->{"{$type}_meest_street_id"} ?? 
+                        $request->shipping_meest_street_id;
+            
+            $street_text = $request->{"{$type}_street_text"} ?? 
+                          $request->{"{$type}_meest_street_text"} ?? '';
+            
+            $building = $request->{"{$type}_building"} ?? 
+                       $request->{"{$type}_meest_building"} ?? 
+                       $request->shipping_building;
+            
+            $flat = $request->{"{$type}_flat"} ?? 
+                   $request->{"{$type}_meest_flat"} ?? 
+                   $request->shipping_meest_flat;
+            
+            if ($street_id) {
+                $order->update_meta_data('_meest_street_id', $street_id);
+                $order->update_meta_data('_meest_street_text', $street_text);
+            }
+            
+            if ($building) {
+                $order->update_meta_data('_meest_building', $building);
+            }
+            
+            if ($flat) {
+                $order->update_meta_data('_meest_flat', $flat);
+            }
+        }
+
+        // Сохраняем полный адрес для использования в других модулях
+        $address = AddressCustomerResource::make($request->all(), $type);
+        $order->update_meta_data('_meest_address', $address);
+
+        $order->save();
+    }
+
+    /**
+     * Прямое сохранение полей Meest при создании заказа
+     */
+    public function saveMeestFields($order, $data)
+    {
+        // Проверяем, выбран ли Meest способ доставки
+        if (!self::isMeestShipping()) {
+            return;
+        }
+
+        // Получаем данные из POST
+        $request = new Request($_POST);
+        
+        // Логируем для отладки
+        error_log('Meest POST data: ' . print_r($_POST, true));
+        error_log('Request object keys: ' . print_r(array_keys((array)$request), true));
+
+        // Определяем тип адреса
+        $type = self::shipToDifferentAddress();
+
+        // Сохраняем тип доставки
+        $delivery_type = $request->{"{$type}_delivery_type"} ?? 
+                        $request->{"{$type}_meest_delivery_type"} ?? 
+                        ($request->shipping_meest_delivery_type_branch ? 'branch' : 
+                        ($request->shipping_meest_delivery_type_address ? 'address' : 'branch'));
+        
+        $order->update_meta_data('_meest_delivery_type', $delivery_type);
+        
+        error_log('Type: ' . $type);
+        error_log('Delivery type: ' . $delivery_type);
+
+        // Сохраняем данные отделения или адреса
+        if ($delivery_type === 'branch') {
+            // Пробуем разные варианты названий полей для branch
+            $branch_id = $request->{"{$type}_branch_id"} ?? 
+                        $request->{"{$type}_meest_branch_id"} ?? 
+                        $request->shipping_meest_branch_id;
+            
+            $branch_text = $request->{"{$type}_branch_text"} ?? 
+                          $request->{"{$type}_meest_branch_text"} ?? '';
+            
+            if ($branch_id) {
+                $order->update_meta_data('_meest_branch_id', $branch_id);
+                $order->update_meta_data('_meest_branch_text', $branch_text);
+            }
+        } elseif ($delivery_type === 'poshtomat') {
+            error_log('=== SAVING POSHTOMAT ===');
+            // Пробуем разные варианты названий полей для poshtomat
+            $poshtomat_id = $request->{"{$type}_poshtomat_id"} ?? 
+                           $request->{"{$type}_meest_poshtomat_id"} ?? 
+                           $request->shipping_meest_poshtomat_id ??
+                           $request->shipping_poshtomat_id;
+            
+            $poshtomat_text = $request->{"{$type}_poshtomat_text"} ?? 
+                             $request->{"{$type}_meest_poshtomat_text"} ?? 
+                             $request->shipping_poshtomat_text ?? '';
+            
+            error_log('Poshtomat ID: ' . ($poshtomat_id ?? 'NULL'));
+            error_log('Poshtomat Text: ' . ($poshtomat_text ?? 'NULL'));
+            error_log('Checking fields:');
+            error_log('  - ' . $type . '_poshtomat_id: ' . ($request->{"{$type}_poshtomat_id"} ?? 'NULL'));
+            error_log('  - shipping_poshtomat_id: ' . ($request->shipping_poshtomat_id ?? 'NULL'));
+            
+            if ($poshtomat_id) {
+                error_log('Saving poshtomat to order meta...');
+                $order->update_meta_data('_meest_poshtomat_id', $poshtomat_id);
+                $order->update_meta_data('_meest_poshtomat_text', $poshtomat_text);
+                error_log('Poshtomat saved!');
+            } else {
+                error_log('ERROR: Poshtomat ID is empty, not saving!');
+            }
+        } else {
+            // Пробуем разные варианты названий полей для address
+            $street_id = $request->{"{$type}_street_id"} ?? 
+                        $request->{"{$type}_meest_street_id"} ?? 
+                        $request->shipping_meest_street_id;
+            
+            $street_text = $request->{"{$type}_street_text"} ?? 
+                          $request->{"{$type}_meest_street_text"} ?? '';
+            
+            $building = $request->{"{$type}_building"} ?? 
+                       $request->{"{$type}_meest_building"} ?? 
+                       $request->shipping_building;
+            
+            $flat = $request->{"{$type}_flat"} ?? 
+                   $request->{"{$type}_meest_flat"} ?? 
+                   $request->shipping_meest_flat;
+            
+            if ($street_id) {
+                $order->update_meta_data('_meest_street_id', $street_id);
+                $order->update_meta_data('_meest_street_text', $street_text);
+            }
+            
+            if ($building) {
+                $order->update_meta_data('_meest_building', $building);
+            }
+            
+            if ($flat) {
+                $order->update_meta_data('_meest_flat', $flat);
+            }
+        }
+
+        // Сохраняем полный адрес для использования в других модулях
+        $address = AddressCustomerResource::make($request->all(), $type);
+        $order->update_meta_data('_meest_address', $address);
+
+    }
+
+    /**
+     * Дополнительное сохранение полей Meest после обработки заказа
+     */
+    public function saveMeestFieldsAfter($order_id, $data)
+    {
+        // Проверяем, выбран ли Meest способ доставки
+        if (!self::isMeestShipping()) {
+            return;
+        }
+
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            return;
+        }
+
+        // Получаем данные из POST
+        $request = new Request($_POST);
+        
+        // Логируем для отладки
+
+        // Определяем тип адреса
+        $type = self::shipToDifferentAddress();
+
+        // Сохраняем тип доставки
+        $delivery_type = $request->{"{$type}_delivery_type"} ?? 
+                        $request->{"{$type}_meest_delivery_type"} ?? 
+                        ($request->shipping_meest_delivery_type_branch ? 'branch' : 
+                        ($request->shipping_meest_delivery_type_address ? 'address' : 'branch'));
+        
+        $order->update_meta_data('_meest_delivery_type', $delivery_type);
+
+        // Сохраняем данные отделения или адреса
+        if ($delivery_type === 'branch') {
+            // Пробуем разные варианты названий полей для branch
+            $branch_id = $request->{"{$type}_branch_id"} ?? 
+                        $request->{"{$type}_meest_branch_id"} ?? 
+                        $request->shipping_meest_branch_id;
+            
+            $branch_text = $request->{"{$type}_branch_text"} ?? 
+                          $request->{"{$type}_meest_branch_text"} ?? '';
+            
+            if ($branch_id) {
+                $order->update_meta_data('_meest_branch_id', $branch_id);
+                $order->update_meta_data('_meest_branch_text', $branch_text);
+            }
+        } elseif ($delivery_type === 'poshtomat') {
+            // Пробуем разные варианты названий полей для poshtomat
+            $poshtomat_id = $request->{"{$type}_poshtomat_id"} ?? 
+                           $request->{"{$type}_meest_poshtomat_id"} ?? 
+                           $request->shipping_meest_poshtomat_id ??
+                           $request->shipping_poshtomat_id;
+            
+            $poshtomat_text = $request->{"{$type}_poshtomat_text"} ?? 
+                             $request->{"{$type}_meest_poshtomat_text"} ?? 
+                             $request->shipping_poshtomat_text ?? '';
+            
+            if ($poshtomat_id) {
+                $order->update_meta_data('_meest_poshtomat_id', $poshtomat_id);
+                $order->update_meta_data('_meest_poshtomat_text', $poshtomat_text);
+            }
+        } else {
+            // Пробуем разные варианты названий полей для address
+            $street_id = $request->{"{$type}_street_id"} ?? 
+                        $request->{"{$type}_meest_street_id"} ?? 
+                        $request->shipping_meest_street_id;
+            
+            $street_text = $request->{"{$type}_street_text"} ?? 
+                          $request->{"{$type}_meest_street_text"} ?? '';
+            
+            $building = $request->{"{$type}_building"} ?? 
+                       $request->{"{$type}_meest_building"} ?? 
+                       $request->shipping_building;
+            
+            $flat = $request->{"{$type}_flat"} ?? 
+                   $request->{"{$type}_meest_flat"} ?? 
+                   $request->shipping_meest_flat;
+            
+            if ($street_id) {
+                $order->update_meta_data('_meest_street_id', $street_id);
+                $order->update_meta_data('_meest_street_text', $street_text);
+            }
+            
+            if ($building) {
+                $order->update_meta_data('_meest_building', $building);
+            }
+            
+            if ($flat) {
+                $order->update_meta_data('_meest_flat', $flat);
+            }
+        }
+
+        // Сохраняем полный адрес для использования в других модулях
+        $address = AddressCustomerResource::make($request->all(), $type);
+        $order->update_meta_data('_meest_address', $address);
+
+        $order->save();
+
+    }
+
+    /**
+     * Сохранение полей Meest при создании нового заказа
+     */
+    public function saveMeestFieldsOnNewOrder($order_id, $order)
+    {
+        // Проверяем, выбран ли Meest способ доставки
+        if (!self::isMeestShipping()) {
+            return;
+        }
+
+        $order_obj = is_numeric($order_id) ? wc_get_order($order_id) : $order;
+        if (!$order_obj) {
+            return;
+        }
+        
+        // Проверяем, не были ли уже сохранены данные Meest
+        $existing_branch_id = $order_obj->get_meta('_meest_branch_id');
+        $existing_poshtomat_id = $order_obj->get_meta('_meest_poshtomat_id');
+        $existing_street_id = $order_obj->get_meta('_meest_street_id');
+        
+        
+        if (!empty($existing_branch_id) || !empty($existing_poshtomat_id) || !empty($existing_street_id)) {
+            return;
+        }
+        
+
+        // Получаем данные из POST или сессии
+        $post_data = $_POST;
+        
+        // Если POST пустой, пробуем получить из сессии
+        if (empty($post_data) || !isset($post_data['billing_first_name'])) {
+            if (WC()->session && WC()->session->get('meest_checkout_data')) {
+                $post_data = WC()->session->get('meest_checkout_data');
+            }
+        }
+        
+        $request = new Request($post_data);
+        
+        // Логируем для отладки
+
+        // Определяем тип адреса
+        $type = self::shipToDifferentAddress();
+
+        // Сохраняем тип доставки
+        $delivery_type = $request->{"{$type}_delivery_type"} ?? 
+                        $request->{"{$type}_meest_delivery_type"} ?? 
+                        ($request->shipping_meest_delivery_type_branch ? 'branch' : 
+                        ($request->shipping_meest_delivery_type_address ? 'address' : 'branch'));
+        
+        $order_obj->update_meta_data('_meest_delivery_type', $delivery_type);
+
+        // Сохраняем данные отделения или адреса
+        if ($delivery_type === 'branch') {
+            // Пробуем разные варианты названий полей для branch
+            $branch_id = $request->{"{$type}_branch_id"} ?? 
+                        $request->{"{$type}_meest_branch_id"} ?? 
+                        $request->shipping_meest_branch_id;
+            
+            $branch_text = $request->{"{$type}_branch_text"} ?? 
+                          $request->{"{$type}_meest_branch_text"} ?? '';
+            
+            
+            if ($branch_id) {
+                $order_obj->update_meta_data('_meest_branch_id', $branch_id);
+                $order_obj->update_meta_data('_meest_branch_text', $branch_text);
+            } else {
+            }
+        } else {
+            // Пробуем разные варианты названий полей для address
+            $street_id = $request->{"{$type}_street_id"} ?? 
+                        $request->{"{$type}_meest_street_id"} ?? 
+                        $request->shipping_meest_street_id;
+            
+            $street_text = $request->{"{$type}_street_text"} ?? 
+                          $request->{"{$type}_meest_street_text"} ?? '';
+            
+            $building = $request->{"{$type}_building"} ?? 
+                       $request->{"{$type}_meest_building"} ?? 
+                       $request->shipping_building;
+            
+            $flat = $request->{"{$type}_flat"} ?? 
+                   $request->{"{$type}_meest_flat"} ?? 
+                   $request->shipping_meest_flat;
+            
+            if ($street_id) {
+                $order_obj->update_meta_data('_meest_street_id', $street_id);
+                $order_obj->update_meta_data('_meest_street_text', $street_text);
+            }
+            
+            if ($building) {
+                $order_obj->update_meta_data('_meest_building', $building);
+            }
+            
+            if ($flat) {
+                $order_obj->update_meta_data('_meest_flat', $flat);
+            }
+        }
+
+        // Сохраняем полный адрес для использования в других модулях
+        $address = AddressCustomerResource::make($request->all(), $type);
+        $order_obj->update_meta_data('_meest_address', $address);
+
+        $order_obj->save();
+
+    }
+
+    /**
+     * Сохранение данных Meest в сессию перед обработкой заказа
+     */
+    public function saveMeestFieldsToSession($data, $errors)
+    {
+        
+        if (!self::isMeestShipping()) {
+            return;
+        }
+
+        // Сохраняем все POST данные в сессию WooCommerce
+        if (WC()->session) {
+            WC()->session->set('meest_checkout_data', $_POST);
+        }
+    }
+
+    /**
+     * Сохранение полей Meest из Store API (новый Checkout Block)
+     */
+    public function saveMeestFieldsFromStoreApi($order, $request)
+    {
+        
+        if (!self::isMeestShipping()) {
+            return;
+        }
+
+        // Пробуем получить данные из cookies
+        $meest_data = null;
+        if (isset($_COOKIE['meest_checkout_data'])) {
+            $meest_data = json_decode(stripslashes($_COOKIE['meest_checkout_data']), true);
+        }
+
+        // Если данных нет в cookies, пробуем получить из сессии
+        if (!$meest_data && WC()->session) {
+            $session_data = WC()->session->get('meest_checkout_data');
+            if ($session_data) {
+                // Извлекаем данные Meest из сессии
+                $type = self::shipToDifferentAddress();
+                $meest_data = [
+                    'delivery_type' => $session_data["{$type}_delivery_type"] ?? null,
+                    'branch_id' => $session_data["{$type}_branch_id"] ?? $session_data["{$type}_meest_branch_id"] ?? $session_data["shipping_meest_branch_id"] ?? null,
+                    'branch_text' => $session_data["{$type}_branch_text"] ?? $session_data["{$type}_meest_branch_text"] ?? null,
+                    'street_id' => $session_data["{$type}_street_id"] ?? $session_data["{$type}_meest_street_id"] ?? $session_data["shipping_meest_street_id"] ?? null,
+                    'street_text' => $session_data["{$type}_street_text"] ?? $session_data["{$type}_meest_street_text"] ?? null,
+                    'building' => $session_data["{$type}_building"] ?? $session_data["{$type}_meest_building"] ?? $session_data["shipping_building"] ?? null,
+                    'flat' => $session_data["{$type}_flat"] ?? $session_data["{$type}_meest_flat"] ?? $session_data["shipping_meest_flat"] ?? null,
+                ];
+            }
+        }
+
+        if ($meest_data) {
+            
+            // Сохраняем тип доставки
+            if (!empty($meest_data['delivery_type'])) {
+                $order->update_meta_data('_meest_delivery_type', $meest_data['delivery_type']);
+            }
+
+            // Сохраняем данные отделения
+            if (!empty($meest_data['branch_id'])) {
+                $order->update_meta_data('_meest_branch_id', $meest_data['branch_id']);
+                $order->update_meta_data('_meest_branch_text', $meest_data['branch_text'] ?? '');
+            }
+
+            // Сохраняем данные поштомата
+            if (!empty($meest_data['poshtomat_id'])) {
+                $order->update_meta_data('_meest_poshtomat_id', $meest_data['poshtomat_id']);
+                $order->update_meta_data('_meest_poshtomat_text', $meest_data['poshtomat_text'] ?? '');
+            }
+
+            // Сохраняем данные адреса
+            if (!empty($meest_data['street_id'])) {
+                $order->update_meta_data('_meest_street_id', $meest_data['street_id']);
+                $order->update_meta_data('_meest_street_text', $meest_data['street_text'] ?? '');
+            }
+
+            if (!empty($meest_data['building'])) {
+                $order->update_meta_data('_meest_building', $meest_data['building']);
+            }
+
+            if (!empty($meest_data['flat'])) {
+                $order->update_meta_data('_meest_flat', $meest_data['flat']);
+            }
+
+            // Формируем и сохраняем полный адрес
+            $type = self::shipToDifferentAddress();
+            $params = $request->get_params();
+            $address_data = $params[$type . '_address'] ?? $params['billing_address'] ?? [];
+            
+            $full_address = [
+                'delivery_type' => $meest_data['delivery_type'] ?? 'branch',
+                'country' => [
+                    'code' => $address_data['country'] ?? '',
+                    'id' => '',
+                    'text' => '',
+                ],
+                'city' => [
+                    'id' => '',
+                    'text' => $address_data['city'] ?? '',
+                ],
+                'region' => [
+                    'id' => $address_data['state'] ?? '',
+                    'text' => '',
+                ],
+            ];
+
+            if (isset($meest_data['delivery_type']) && $meest_data['delivery_type'] === 'branch' && !empty($meest_data['branch_id'])) {
+                $full_address['branch'] = [
+                    'id' => $meest_data['branch_id'],
+                    'text' => $meest_data['branch_text'] ?? '',
+                ];
+            } elseif (isset($meest_data['delivery_type']) && $meest_data['delivery_type'] === 'poshtomat' && !empty($meest_data['poshtomat_id'])) {
+                $full_address['poshtomat'] = [
+                    'id' => $meest_data['poshtomat_id'],
+                    'text' => $meest_data['poshtomat_text'] ?? '',
+                ];
+            } elseif (!empty($meest_data['street_id'])) {
+                $full_address['street'] = [
+                    'id' => $meest_data['street_id'] ?? '',
+                    'text' => $meest_data['street_text'] ?? '',
+                ];
+                $full_address['building'] = $meest_data['building'] ?? '';
+                $full_address['flat'] = $meest_data['flat'] ?? '';
+            }
+
+            $order->update_meta_data('_meest_address', $full_address);
+            $order->save();
+            
+        } else {
+        }
+    }
+
+    /**
+     * Добавление полей Meest в posted data для автоматического сохранения
+     */
+    public function addMeestFieldsToPostedData($data)
+    {
+        
+        // Проверяем, выбран ли Meest способ доставки
+        if (!self::isMeestShipping()) {
+            return $data;
+        }
+
+        // Определяем тип адреса
+        $type = self::shipToDifferentAddress();
+        $request = new Request($_POST);
+
+        // Добавляем поля Meest в posted data
+        $data['_meest_delivery_type'] = $request->{"{$type}_delivery_type"} ?? 
+                                       $request->{"{$type}_meest_delivery_type"} ?? 
+                                       ($request->shipping_meest_delivery_type_branch ? 'branch' : 
+                                       ($request->shipping_meest_delivery_type_address ? 'address' : 'branch'));
+
+        $data['_meest_branch_id'] = $request->{"{$type}_branch_id"} ?? 
+                                    $request->{"{$type}_meest_branch_id"} ?? 
+                                    $request->shipping_meest_branch_id ?? '';
+
+        $data['_meest_branch_text'] = $request->{"{$type}_branch_text"} ?? 
+                                      $request->{"{$type}_meest_branch_text"} ?? '';
+
+        $data['_meest_street_id'] = $request->{"{$type}_street_id"} ?? 
+                                    $request->{"{$type}_meest_street_id"} ?? 
+                                    $request->shipping_meest_street_id ?? '';
+
+        $data['_meest_street_text'] = $request->{"{$type}_street_text"} ?? 
+                                      $request->{"{$type}_meest_street_text"} ?? '';
+
+        $data['_meest_building'] = $request->{"{$type}_building"} ?? 
+                                   $request->{"{$type}_meest_building"} ?? 
+                                   $request->shipping_building ?? '';
+
+        $data['_meest_flat'] = $request->{"{$type}_flat"} ?? 
+                               $request->{"{$type}_meest_flat"} ?? 
+                               $request->shipping_meest_flat ?? '';
+
+
+        return $data;
+    }
+
+    public function getAddress($type): array
+    {
+        $address = $this->customer->getMeta("{$type}_meest_address", null);
+
+        if (empty($address['country'])) {
+            $address['country'] = $this->options['address']['country'];
+        }
+
+        return [
+            'delivery_type' => $address['delivery_type'] ?? 'branch',
+            'country' => [
+                'code' => $address['country']['code'] ?? null,
+                'id' => $address['country']['id'] ?? null,
+                'text' => $address['country']['text'] ?? null,
+            ],
+            'city' => [
+                'id' => $address['city']['id'] ?? null,
+                'text' => $address['city']['text'] ?? null,
+            ],
+            'region' => [
+                'text' => $address['region']['text'] ?? null,
+            ],
+            'street' => [
+                'id' => $address['street']['id'] ?? null,
+                'text' => $address['street']['text'] ?? null,
+            ],
+            'building' => $address['building'] ?? null,
+            'flat' => $address['flat'] ?? null,
+            'postcode' => $address['postcode'] ?? null,
+            'branch' => [
+                'id' => $address['branch']['id'] ?? null,
+                'text' => $address['branch']['text'] ?? null,
+            ]
+        ];
+    }
+    
+    /**
+     * AJAX handler для получения списка городов из Meest API
+     */
+    public function ajaxGetCities()
+    {
+        try {
+            // Получаем страну из настроек (по умолчанию Украина)
+            $countryId = $this->options['country_id']['ua'] ?? 'UA';
+            
+            // Получаем поисковый запрос (если есть)
+            $searchTerm = isset($_POST['search']) ? sanitize_text_field($_POST['search']) : '';
+            
+            // Получаем список городов из репозитория
+            $cities = CityRepository::instance()->search($countryId, $searchTerm);
+            
+            // Форматируем данные для select2 (уже в нужном формате)
+            wp_send_json_success($cities);
+        } catch (\Exception $e) {
+            wp_send_json_error([
+                'message' => $e->getMessage()
+            ]);
+        }
+    }
+    
+    /**
+     * AJAX handler для получения списка отделений
+     */
+    public function ajaxGetBranches()
+    {
+        try {
+            // Получаем ID города
+            $cityId = isset($_POST['city_id']) ? sanitize_text_field($_POST['city_id']) : '';
+            
+            if (empty($cityId)) {
+                wp_send_json_error(['message' => 'City ID is required']);
+                return;
+            }
+            
+            // Получаем поисковый запрос (если есть)
+            $searchTerm = isset($_POST['search']) ? sanitize_text_field($_POST['search']) : '';
+
+            // Проверяем доступность API
+            if (!function_exists('meest_init')) {
+                wp_send_json_error(['message' => 'Meest API not available']);
+                return;
+            }
+
+            // Получаем список отделений из репозитория
+            $branches = BranchRepository::instance()->search($cityId, $searchTerm);
+            
+            wp_send_json_success($branches);
+        } catch (\Exception $e) {
+            wp_send_json_error([
+                'message' => $e->getMessage()
+            ]);
+        }
+    }
+    
+    /**
+     * AJAX handler для получения списка улиц
+     */
+    /**
+     * AJAX обработчик для сохранения данных Meest к заказу
+     */
+    public function ajaxSaveMeestOrderData()
+    {
+        // Получаем данные из запроса
+        $order_id = isset($_POST['order_id']) ? intval($_POST['order_id']) : 0;
+        $meest_data = isset($_POST['meest_data']) ? $_POST['meest_data'] : null;
+        
+        error_log('Meest AJAX: Received request to save data for order ' . $order_id);
+        error_log('Meest AJAX: Data: ' . print_r($meest_data, true));
+        
+        if (!$order_id || !$meest_data) {
+            wp_send_json_error(['message' => 'Missing order_id or meest_data']);
+            return;
+        }
+        
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            wp_send_json_error(['message' => 'Order not found']);
+            return;
+        }
+        
+        // Сохраняем тип доставки
+        if (!empty($meest_data['delivery_type'])) {
+            $order->update_meta_data('_meest_delivery_type', sanitize_text_field($meest_data['delivery_type']));
+        }
+        
+        // Сохраняем данные отделения
+        if (!empty($meest_data['branch_id'])) {
+            $order->update_meta_data('_meest_branch_id', sanitize_text_field($meest_data['branch_id']));
+            $order->update_meta_data('_meest_branch_text', sanitize_text_field($meest_data['branch_text'] ?? ''));
+        }
+        
+        // Сохраняем данные адреса
+        if (!empty($meest_data['street_id'])) {
+            $order->update_meta_data('_meest_street_id', sanitize_text_field($meest_data['street_id']));
+            $order->update_meta_data('_meest_street_text', sanitize_text_field($meest_data['street_text'] ?? ''));
+        }
+        
+        if (!empty($meest_data['building'])) {
+            $order->update_meta_data('_meest_building', sanitize_text_field($meest_data['building']));
+        }
+        
+        if (!empty($meest_data['flat'])) {
+            $order->update_meta_data('_meest_flat', sanitize_text_field($meest_data['flat']));
+        }
+        
+        // Формируем полный адрес
+        $full_address = [
+            'delivery_type' => $meest_data['delivery_type'] ?? 'branch',
+            'country' => ['code' => '', 'id' => '', 'text' => ''],
+            'city' => ['id' => '', 'text' => ''],
+            'region' => ['id' => '', 'text' => ''],
+        ];
+        
+        if (isset($meest_data['delivery_type']) && $meest_data['delivery_type'] === 'branch' && !empty($meest_data['branch_id'])) {
+            $full_address['branch'] = [
+                'id' => $meest_data['branch_id'],
+                'text' => $meest_data['branch_text'] ?? '',
+            ];
+        } else {
+            $full_address['street'] = [
+                'id' => $meest_data['street_id'] ?? '',
+                'text' => $meest_data['street_text'] ?? '',
+            ];
+            $full_address['building'] = $meest_data['building'] ?? '';
+            $full_address['flat'] = $meest_data['flat'] ?? '';
+        }
+        
+        $order->update_meta_data('_meest_address', $full_address);
+        $order->save();
+        
+        error_log('Meest AJAX: Data saved successfully for order ' . $order_id);
+        
+        wp_send_json_success([
+            'message' => 'Meest data saved successfully',
+            'order_id' => $order_id
+        ]);
+    }
+
+    public function ajaxGetStreets()
+    {
+        try {
+            // Получаем ID города
+            $cityId = isset($_POST['city_id']) ? sanitize_text_field($_POST['city_id']) : '';
+            
+            if (empty($cityId)) {
+                wp_send_json_error(['message' => 'City ID is required']);
+                return;
+            }
+
+            $searchTerm = isset($_POST['search']) ? sanitize_text_field($_POST['search']) : '';
+
+            // Проверяем доступность API
+            if (!function_exists('meest_init')) {
+                wp_send_json_error(['message' => 'Meest API not available']);
+                return;
+            }
+
+            // Получаем список улиц из репозитория
+            $streets = StreetRepository::instance()->search($cityId, $searchTerm);
+
+            wp_send_json_success($streets);
+        } catch (\Exception $e) {
+            wp_send_json_error([
+                'message' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Проверяет, выбран ли метод доставки Meest в текущей сессии
+     * Используется для предотвращения конфликтов с другими плагинами доставки
+     */
+    public static function isMeestShippingSelected()
+    {
+        // Проверяем выбранные методы доставки в сессии WooCommerce
+        if (WC()->session) {
+            $chosen_methods = WC()->session->get('chosen_shipping_methods');
+            if (!empty($chosen_methods) && is_array($chosen_methods)) {
+                foreach ($chosen_methods as $method) {
+                    // Проверяем, начинается ли метод с 'meest'
+                    if (strpos($method, 'meest') === 0) {
+                        return true;
+                    }
+                }
+            }
+        }
+        
+        // Дополнительная проверка через POST данные (для AJAX запросов)
+        if (!empty($_POST['shipping_method'])) {
+            $shipping_methods = is_array($_POST['shipping_method']) ? $_POST['shipping_method'] : [$_POST['shipping_method']];
+            foreach ($shipping_methods as $method) {
+                if (strpos($method, 'meest') === 0) {
+                    return true;
+                }
+            }
+        }
+        
+        // Проверка для WooCommerce Blocks (новый checkout)
+        if (!empty($_POST['extensions']) && is_string($_POST['extensions'])) {
+            $extensions = json_decode(stripslashes($_POST['extensions']), true);
+            if (isset($extensions['woocommerce/cart']['shipping_rates'])) {
+                foreach ($extensions['woocommerce/cart']['shipping_rates'] as $rate) {
+                    if (isset($rate['selected']) && $rate['selected'] && strpos($rate['rate_id'], 'meest') === 0) {
+                        return true;
+                    }
+                }
+            }
+        }
+        
+        return false;
+    }
+}
+

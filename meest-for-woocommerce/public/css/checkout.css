@@ -1,0 +1,298 @@
+/**
+ * Meest Checkout Styles
+ */
+
+/* Скрытие стандартных полей WooCommerce при выборе Meest */
+.meest-hide-field {
+    display: none !important;
+}
+
+.meest-shipping-fields {
+    margin: 20px 0;
+    padding: 20px;
+    background: #f9f9f9;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    overflow: visible !important;
+    min-height: auto !important;
+    height: auto !important;
+}
+
+.meest-fields-wrapper {
+    overflow: visible !important;
+    height: auto !important;
+    min-height: auto !important;
+}
+
+.meest-fields-wrapper h3 {
+    margin: 0 0 15px 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+}
+
+.meest-fields-wrapper .form-row {
+    margin-bottom: 15px;
+}
+
+/* Двухколоночная верстка для form-row-first и form-row-last */
+.meest-fields-wrapper .form-row-first {
+    float: left !important;
+    width: 48% !important;
+    margin-right: 4% !important;
+    clear: both !important;
+}
+
+.meest-fields-wrapper .form-row-last {
+    float: right !important;
+    width: 48% !important;
+    margin-right: 0 !important;
+}
+
+/* Clearfix после пары полей */
+.meest-fields-wrapper .form-row-last::after {
+    content: "";
+    display: table;
+    clear: both;
+}
+
+/* Полноширинные поля */
+.meest-fields-wrapper .form-row-wide {
+    width: 100% !important;
+    clear: both !important;
+    float: none !important;
+}
+
+.meest-fields-wrapper label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+    color: #555;
+}
+
+.meest-fields-wrapper label input[type="radio"] {
+    margin-right: 8px;
+}
+
+.meest-fields-wrapper .required {
+    color: #ff0000;
+    font-weight: bold;
+}
+
+.meest-fields-wrapper select,
+.meest-fields-wrapper input[type="text"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: border-color 0.3s;
+}
+
+.meest-fields-wrapper select:focus,
+.meest-fields-wrapper input[type="text"]:focus {
+    border-color: #0073aa;
+    outline: none;
+    box-shadow: 0 0 0 1px #0073aa;
+}
+
+.meest-fields-wrapper select:disabled {
+    background-color: #f5f5f5;
+    cursor: not-allowed;
+}
+
+.meest-address-fields {
+    margin-top: 15px;
+    overflow: visible !important;
+    clear: both;
+}
+
+.meest-address-fields::after {
+    content: "";
+    display: table;
+    clear: both;
+}
+
+.meest-branch-field {
+    transition: opacity 0.3s;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .meest-fields-wrapper .form-row-first,
+    .meest-fields-wrapper .form-row-last {
+        width: 100% !important;
+        margin-right: 0 !important;
+    }
+}
+
+/* Loading state */
+.meest-loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.meest-loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #0073aa;
+    border-radius: 50%;
+    animation: meest-spin 1s linear infinite;
+}
+
+@keyframes meest-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Hide fields when not selected */
+.meest-shipping-fields[style*="display: none"],
+.meest-shipping-fields[style*="display:none"] {
+    display: none !important;
+}
+
+/* Убираем возможные ограничения от родительских контейнеров */
+#customer_details .meest-shipping-fields,
+.woocommerce-billing-fields .meest-shipping-fields,
+.woocommerce-shipping-fields .meest-shipping-fields {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+}
+
+.woocommerce-billing-fields__field-wrapper,
+.woocommerce-shipping-fields__field-wrapper {
+    overflow: visible !important;
+}
+
+/* City autocomplete dropdown */
+.meest-city-wrapper {
+    position: relative !important;
+    overflow: visible !important; /* Важно чтобы dropdown не обрезался */
+    z-index: 1 !important;
+}
+
+.meest-city-wrapper * {
+    box-sizing: border-box;
+}
+
+/* Street autocomplete dropdown */
+.meest-street-dropdown {
+    position: fixed !important;
+    background: #fff !important;
+    border: 1px solid #ddd !important;
+    border-radius: 4px !important;
+    max-height: 250px !important;
+    overflow-y: auto !important;
+    list-style: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    z-index: 999999 !important;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2) !important;
+    display: none;
+}
+
+.meest-street-dropdown .street-item {
+    padding: 10px 15px !important;
+    cursor: pointer !important;
+    border-bottom: 1px solid #f0f0f0 !important;
+    transition: background-color 0.2s !important;
+}
+
+.meest-street-dropdown .street-item:last-child {
+    border-bottom: none !important;
+}
+
+.meest-street-dropdown .street-item:hover {
+    background-color: #f5f5f5 !important;
+}
+
+.meest-street-dropdown .loading,
+.meest-street-dropdown .no-results,
+.meest-street-dropdown .error {
+    padding: 10px 15px !important;
+    color: #666 !important;
+    text-align: center !important;
+}
+
+.meest-street-dropdown .error {
+    color: #d63638 !important;
+}
+
+.meest-city-input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.meest-city-dropdown {
+    position: absolute !important;
+    top: 100% !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    z-index: 999999 !important;
+    background: #fff !important;
+    border: 2px solid #ff0000 !important; /* Красная граница для видимости */
+    border-top: none !important;
+    max-height: 250px !important;
+    overflow-y: auto !important;
+    list-style: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.3) !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+}
+
+.meest-city-dropdown li {
+    padding: 12px 15px !important;
+    cursor: pointer !important;
+    border-bottom: 1px solid #f0f0f0 !important;
+    transition: background-color 0.2s !important;
+    font-size: 14px !important;
+    line-height: 1.4 !important;
+    color: #333 !important;
+    background: #fff !important;
+}
+
+.meest-city-dropdown li:last-child {
+    border-bottom: none !important;
+}
+
+.meest-city-dropdown li:hover {
+    background-color: #f5f5f5 !important;
+}
+
+.meest-city-dropdown li.city-item {
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+.meest-city-dropdown li.city-item:hover {
+    background-color: #0073aa !important;
+    color: #fff !important;
+}
+
+.meest-city-dropdown li.loading,
+.meest-city-dropdown li.no-results,
+.meest-city-dropdown li.error {
+    color: #999 !important;
+    cursor: default !important;
+    text-align: center !important;
+}
+
+.meest-city-dropdown li.loading {
+    padding: 20px !important;
+}
+
+.meest-city-dropdown li.error {
+    color: #d63638 !important;
+}
