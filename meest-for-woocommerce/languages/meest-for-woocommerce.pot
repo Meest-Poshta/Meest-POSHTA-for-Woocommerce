@@ -1,0 +1,215 @@
+# Copyright (C) 2024 Meest for WooCommerce
+# This file is distributed under the same license as the Meest for WooCommerce package.
+msgid ""
+msgstr ""
+"Project-Id-Version: Meest for WooCommerce 1.2.0\n"
+"Report-Msgid-Bugs-To: webdeveloper.eu@gmail.com\n"
+"POT-Creation-Date: 2024-11-26 15:00+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+
+#: src/Core/MeestShippingMethod.php:19
+#: src/Core/MeestShippingMethod.php:46
+#: src/Core/MeestShippingMethod.php:62
+msgid "Meest Post"
+msgstr ""
+
+#: src/Core/MeestShippingMethod.php:59
+msgid "Name"
+msgstr ""
+
+#: src/Core/MeestShippingMethod.php:61
+msgid "This controls the title which the user sees during checkout."
+msgstr ""
+
+#: src/Core/MeestShippingMethod.php:97
+msgid "Shipping with popular Ukrainian logistic company Meest Group"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:35
+msgid "Barcode"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:36
+#: src/Tables/ParcelTable.php:110
+msgid "Pickup"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:37
+msgid "Order"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:38
+#: src/Tables/PickupTable.php:36
+msgid "Sender"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:39
+msgid "Receiver"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:40
+#: src/Tables/PickupTable.php:37
+msgid "Payer"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:41
+#: src/Tables/PickupTable.php:38
+msgid "Pay type"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:42
+msgid "COD"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:43
+msgid "Cost services"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:44
+msgid "Delivery date"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:45
+#: src/Tables/PickupTable.php:41
+msgid "Created at"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:77
+#: src/Tables/PickupTable.php:68
+msgid "Cash"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:77
+#: src/Tables/PickupTable.php:68
+msgid "Non cash"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:102
+msgid "Declaration"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:103
+msgid "Sticker"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:104
+msgid "Tracking"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:107
+msgid "Email"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:112
+msgid "Unpickup"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:114
+#: src/Tables/PickupTable.php:83
+msgid "Edit"
+msgstr ""
+
+#: src/Tables/ParcelTable.php:115
+#: src/Tables/PickupTable.php:84
+msgid "Delete"
+msgstr ""
+
+#: src/Tables/PickupTable.php:35
+msgid "Number"
+msgstr ""
+
+#: src/Tables/PickupTable.php:39
+msgid "Date"
+msgstr ""
+
+#: src/Tables/PickupTable.php:40
+msgid "Time"
+msgstr ""
+
+#: src/Traits/Email.php:16
+#, php-format
+msgid "Order #%s was shipped!"
+msgstr ""
+
+#: src/Modules/Checkout.php:124
+msgid "Будь ласка, виберіть місто"
+msgstr ""
+
+#: src/Modules/Checkout.php:130
+msgid "Будь ласка, виберіть відділення"
+msgstr ""
+
+#: src/Modules/Checkout.php:135
+msgid "Будь ласка, виберіть поштомат"
+msgstr ""
+
+#: src/Modules/Checkout.php:140
+msgid "Будь ласка, введіть вулицю"
+msgstr ""
+
+#: src/Modules/Checkout.php:143
+msgid "Будь ласка, введіть номер будинку"
+msgstr ""
+
+#: src/Modules/Checkout.php:284
+msgid "Meest Пошта"
+msgstr ""
+
+#: src/Modules/Checkout.php:285
+msgid "Виберіть місто"
+msgstr ""
+
+#: resources/views/parts/address_details.php:1
+msgid "Address details"
+msgstr ""
+
+#: resources/views/parts/address_details.php:6
+msgid "Country"
+msgstr ""
+
+#: resources/views/parts/address_details.php:11
+msgid "Region"
+msgstr ""
+
+#: resources/views/parts/address_details.php:16
+msgid "City"
+msgstr ""
+
+#: resources/views/parts/address_details.php:21
+msgid "Branch"
+msgstr ""
+
+#: resources/views/parts/address_details.php:26
+msgid "Street"
+msgstr ""
+
+#: resources/views/parts/address_details.php:30
+msgid "Building"
+msgstr ""
+
+#: resources/views/parts/address_details.php:30
+msgid "Flat"
+msgstr ""
+
+#: resources/views/parts/address_details.php:37
+msgid "Address information is not available."
+msgstr ""
+
+#: resources/views/parts/shipping_details.php:1
+msgid "Shipping details"
+msgstr ""
+
+#: resources/views/parts/shipping_details.php:5
+msgid "Tracking number"
+msgstr ""
+
+#: src/Exceptions/MissingTokenException.php:13
+msgid "Token is missing!"
+msgstr ""

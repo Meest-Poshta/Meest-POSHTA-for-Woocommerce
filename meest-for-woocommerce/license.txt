@@ -1,0 +1,21 @@
+License Agreement of plugin "Meest for WooCommerce" ("Plugin").
+
+This is a legal agreement between you and webdeveloper.eu@gmail.com covering your use of "Plugin".
+
+"Plugin" is provided as freeware for private and commercial use.
+
+"Plugin" is owned by webdeveloper.eu@gmail.com and is protected by copyright laws and international treaty provisions. Therefore, you must treat the Software like any other copyrighted material.
+
+You may free distribute "Plugin" only in original code from official page:
+ - https://github.com/meest-com/meest-for-woocommerce
+ - https://wordpress.org/plugins/meest-for-woocommerce.
+
+You may not modify, clone or use part of the code for yourself projects without prior written consent from webdeveloper.eu@gmail.com.
+
+In the case of an authorized transfer, the transferee must agree to be bound by the terms and conditions of this License Agreement.
+
+Copyright (C) 2021 by webdeveloper.eu@gmail.com. 
+
+Email: webdeveloper.eu@gmail.com
+
+All rights reserved.
