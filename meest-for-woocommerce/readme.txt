@@ -4,7 +4,7 @@ Tags: meest, commerce, woocommerce, shop, post, delivery, shipping, meest-expres
 Requires at least: 4.1
 Tested up to: 6.4
 Requires PHP: 7.0
-Stable tag: 1.2.1
+Stable tag: 1.3.0
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -152,6 +152,20 @@ License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
 == Changelog ==
 
+= 1.3.0 =
+* Added Flatpickr date picker plugin for better UX
+* Added email templates for parcel notifications
+* Added comprehensive language support (Russian and Ukrainian translations)
+* Added pickup management features (form and list views)
+* Added parcel tracking functionality
+* Added new about page and support sections
+* Improved settings pages structure (API, Cost, General)
+* Enhanced REST API functionality
+* Added multiple repository classes for better data management
+* Improved error handling with custom exceptions
+* Added migration system for database updates
+* Performance improvements and code optimization
+
 = 1.2.1 =
 * Added search for branches in the drop-down list.
 
@@ -181,6 +195,9 @@ License URI: https://www.gnu.org/licenses/gpl-2.0.html
 * Initial release
 
 == Upgrade Notice ==
+
+= 1.3.0 =
+Major update with new features: Flatpickr integration, email templates, multilingual support, pickup management, parcel tracking, and enhanced REST API. Recommended update for all users.
 
 = 1.2.1 =
 Important security update. Please update immediately. This version fixes SQL injection vulnerabilities and improves overall security.
