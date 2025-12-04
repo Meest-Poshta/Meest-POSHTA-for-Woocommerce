@@ -337,7 +337,7 @@ GNU General Public License for more details.
 ## 👨‍💻 Автори
 
 **Meest.com Team**
-- Website: [https://meest.com](https://meest.com)
+- Website: [https://meestposhta.com.ua](https://meest.com)
 - GitHub: [@meest.com](https://github.com/meest.com)
 - Email: webdeveloper.eu@gmail.com
 
