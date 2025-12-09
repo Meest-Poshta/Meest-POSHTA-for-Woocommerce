@@ -29,7 +29,6 @@ class Dictionary implements \MeestShipping\Contracts\Module
 
         if (!file_exists($dictionaryDir) && !wp_mkdir_p($dictionaryDir)) {
             error_log('Failed to create directory: ' . $dictionaryDir);
-
             throw new Exception('Failed to create directory: ' . $dictionaryDir);
         }
 
@@ -51,7 +50,6 @@ class Dictionary implements \MeestShipping\Contracts\Module
         $dictionaryData = file_get_contents($this->options['dictionary_url']);
         if ($dictionaryData === false) {
             error_log('Failed to load url: ' . $this->options['dictionary_url']);
-
             throw new Exception('Failed to load url: ' . $this->options['dictionary_url']);
         }
 
@@ -61,12 +59,13 @@ class Dictionary implements \MeestShipping\Contracts\Module
         if ($zip->open($dictionaryPath) === true) {
             foreach ($this->options['dictionary']['files'] as $dictionary => $fileName) {
                 $fileContent = $zip->getFromName($fileName);
-                file_put_contents($dictionaryDir . DS . "$dictionary.csv" , $fileContent);
+                if ($fileContent !== false) {
+                    file_put_contents($dictionaryDir . DS . "$dictionary.csv" , $fileContent);
+                }
             }
             $zip->close();
         } else {
             error_log('Failed to open or extract the zip file.');
-
             throw new Exception('Failed to open or extract the zip file.');
         }
     }
@@ -128,6 +127,7 @@ class Dictionary implements \MeestShipping\Contracts\Module
 
             $rowNumber = 0;
             $rows = [];
+            
             while (false !== $data = fgetcsv($handle, 1000, ';')) {
                 $data = $values($data);
                 if (empty($data)) {
@@ -138,14 +138,47 @@ class Dictionary implements \MeestShipping\Contracts\Module
                 $rows[] = $data;
 
                 if ($rowNumber === self::MAX_ROWS) {
-                    $class::insert($columns, $rows);
+                    // Try batch insert
+                    try {
+                        $result = $class::insert($columns, $rows);
+                        if ($result === false) {
+                            throw new Exception("Batch INSERT failed");
+                        }
+                    } catch (Exception $e) {
+                        // Fallback: insert one by one
+                        foreach ($rows as $row) {
+                            try {
+                                $class::insert($columns, [$row]);
+                            } catch (Exception $ex) {
+                                // Skip rows that can't be inserted
+                                error_log('Failed to insert row: ' . json_encode($row));
+                            }
+                        }
+                    }
+                    
                     $rowNumber = 0;
                     $rows = [];
                 }
             }
 
+            // Insert remaining rows
             if (!empty($rows)) {
-                $class::insert($columns, $rows);
+                try {
+                    $result = $class::insert($columns, $rows);
+                    if ($result === false) {
+                        throw new Exception("Final batch INSERT failed");
+                    }
+                } catch (Exception $e) {
+                    // Fallback: insert one by one
+                    foreach ($rows as $row) {
+                        try {
+                            $class::insert($columns, [$row]);
+                        } catch (Exception $ex) {
+                            // Skip rows that can't be inserted
+                            error_log('Failed to insert row: ' . json_encode($row));
+                        }
+                    }
+                }
             }
 
             fclose($handle);
@@ -154,6 +187,36 @@ class Dictionary implements \MeestShipping\Contracts\Module
 
     private static function decode(string $str): string
     {
-        return mb_convert_encoding($str, 'UTF-8', 'Windows-1251');
+        if (empty($str)) {
+            return '';
+        }
+        
+        // Convert from Windows-1251 to UTF-8
+        $decoded = @mb_convert_encoding($str, 'UTF-8', 'Windows-1251');
+        
+        if ($decoded === false || $decoded === null) {
+            $decoded = $str;
+        }
+        
+        // Clean invalid UTF-8 sequences
+        if (function_exists('mb_scrub')) {
+            $decoded = mb_scrub($decoded, 'UTF-8');
+        }
+        
+        // Additional cleaning
+        if (!mb_check_encoding($decoded, 'UTF-8')) {
+            $cleaned = @iconv('UTF-8', 'UTF-8//IGNORE', $decoded);
+            if ($cleaned !== false) {
+                $decoded = $cleaned;
+            }
+        }
+        
+        // Remove control characters
+        $decoded = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $decoded);
+        
+        // WordPress sanitization
+        $decoded = sanitize_text_field($decoded);
+        
+        return trim($decoded);
     }
 }

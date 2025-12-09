@@ -4,7 +4,7 @@ Tags: meest, commerce, woocommerce, shop, post, delivery, shipping, meest-expres
 Requires at least: 4.1
 Tested up to: 6.4
 Requires PHP: 7.0
-Stable tag: 1.3.0
+Stable tag: 1.3.1
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -151,6 +151,10 @@ License URI: https://www.gnu.org/licenses/gpl-2.0.html
 7. Order integration - create parcel button
 
 == Changelog ==
+
+= 1.3.1 =
+* Fixed: Resolved issue with missing cities during import process
+* Improved: City data integrity during database synchronization
 
 = 1.3.0 =
 * Added Flatpickr date picker plugin for better UX
