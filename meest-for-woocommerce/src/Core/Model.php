@@ -156,11 +156,16 @@ abstract class Model
 
         $formats = array_intersect_key($self->formats, array_flip($columns));
 
+        $sqlValues = [];
         foreach ($values as $value) {
             $sqlValue = $self->db->prepare( '(' . implode(', ', $formats) . ')', $value);
             if (!empty($sqlValue)) {
                 $sqlValues[] = $sqlValue;
             }
+        }
+
+        if (empty($sqlValues)) {
+            return false;
         }
 
         $sql .= implode(', ', $sqlValues);

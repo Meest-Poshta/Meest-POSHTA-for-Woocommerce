@@ -10,6 +10,8 @@ return [
             '0c1b0075-cd44-49d1-bd3e-094da9645919',
             'acabaf4b-df2e-11eb-80d5-000c29800ae7',
             'ac82815e-10fe-4eb7-809a-c34be4553213',
+            'ac1ec893-efdc-4e92-9f50-400d1ffcafc6',
+            '302d4b0d-1802-11ef-80c5-000c2961d091',
         ],
     ],
     'credential' => [

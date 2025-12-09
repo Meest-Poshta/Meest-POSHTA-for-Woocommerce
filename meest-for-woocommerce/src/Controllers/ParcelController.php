@@ -104,7 +104,7 @@ class ParcelController extends Controller
         }
 
         $packTypes = PackTypesRepository::instance()->get();
-        $senderData = array_merge($this->options['contact'], $this->options['address']);
+        $senderData = array_merge($this->options['contact'] ?? [], $this->options['address'] ?? []);
         $sender = new User($senderData);
 
         if (!empty($order)) {
