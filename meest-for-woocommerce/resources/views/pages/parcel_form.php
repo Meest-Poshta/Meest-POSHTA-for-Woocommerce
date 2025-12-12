@@ -663,7 +663,30 @@ jQuery(document).ready(function($) {
                 $citySelect.empty().append(new Option(cityText, cityIdToUse, true, true));
             }
             
-            $citySelect.select2({
+            $citySelect.selectWoo({
+                ajax: {
+                    type: 'POST',
+                    url: meest.ajaxUrl,
+                    delay: 600,
+                    dataType: 'json',
+                    data: function(params) {
+                        return {
+                            action: meest.actions.get_city,
+                            country: $('#meest_receiver_country_id').val(),
+                            text: params.term
+                        };
+                    },
+                    processResults: function(data) {
+                        return {
+                            results: data.map(function(item) {
+                                return {
+                                    id: item.id,
+                                    text: item.text
+                                };
+                            })
+                        };
+                    }
+                },
                 placeholder: 'Select a city',
                 width: '400px'
             });
@@ -694,7 +717,30 @@ jQuery(document).ready(function($) {
                     $branchSelect.empty().append(new Option(branchText, branchVal, true, true));
                 }
                 
-                $branchSelect.select2({
+                $branchSelect.selectWoo({
+                    ajax: {
+                        type: 'POST',
+                        url: meest.ajaxUrl,
+                        delay: 600,
+                        dataType: 'json',
+                        data: function(params) {
+                            return {
+                                action: meest.actions.get_branch,
+                                city: $('#meest_receiver_city_id').val(),
+                                text: params.term
+                            };
+                        },
+                        processResults: function(data) {
+                            return {
+                                results: data.map(function(item) {
+                                    return {
+                                        id: item.id,
+                                        text: item.text
+                                    };
+                                })
+                            };
+                        }
+                    },
                     placeholder: 'Select a branch',
                     width: '400px'
                 });
@@ -750,7 +796,30 @@ jQuery(document).ready(function($) {
                 }
                 
                 
-                $poshtomatSelect.select2({
+                $poshtomatSelect.selectWoo({
+                    ajax: {
+                        type: 'POST',
+                        url: meest.ajaxUrl,
+                        delay: 600,
+                        dataType: 'json',
+                        data: function(params) {
+                            return {
+                                action: meest.actions.get_poshtomat,
+                                city: $('#meest_receiver_city_id').val(),
+                                text: params.term
+                            };
+                        },
+                        processResults: function(data) {
+                            return {
+                                results: data.map(function(item) {
+                                    return {
+                                        id: item.id,
+                                        text: item.text
+                                    };
+                                })
+                            };
+                        }
+                    },
                     placeholder: 'Select a poshtomat',
                     width: '400px'
                 });
@@ -776,13 +845,39 @@ jQuery(document).ready(function($) {
                     $streetSelect.select2('destroy');
                 }
                 
-                // Если есть значение и текст, создаем option
-                if (streetVal && streetText) {
+                // Если есть текст, создаем/обновляем option
+                if (streetText) {
+                    // Если id пустой, используем text как id
+                    var streetIdToUse = (streetVal && streetVal !== '') ? streetVal : streetText;
+                    
                     // Очищаем и создаем новый option
-                    $streetSelect.empty().append(new Option(streetText, streetVal, true, true));
+                    $streetSelect.empty().append(new Option(streetText, streetIdToUse, true, true));
                 }
                 
-                $streetSelect.select2({
+                $streetSelect.selectWoo({
+                    ajax: {
+                        type: 'POST',
+                        url: meest.ajaxUrl,
+                        delay: 600,
+                        dataType: 'json',
+                        data: function(params) {
+                            return {
+                                action: meest.actions.get_street,
+                                city: $('#meest_receiver_city_id').val(),
+                                text: params.term
+                            };
+                        },
+                        processResults: function(data) {
+                            return {
+                                results: data.map(function(item) {
+                                    return {
+                                        id: item.id,
+                                        text: item.text
+                                    };
+                                })
+                            };
+                        }
+                    },
                     placeholder: 'Select a street',
                     width: '400px'
                 });

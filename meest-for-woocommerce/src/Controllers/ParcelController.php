@@ -258,10 +258,10 @@ class ParcelController extends Controller
                     'text' => $meestPoshtomatText
                 ];
             } elseif ($meestDeliveryType === 'address') {
-                if ($meestStreetId) {
+                if ($meestStreetId || $meestStreetText) {
                     $receiverData['street'] = [
-                        'id' => $meestStreetId,
-                        'text' => $meestStreetText
+                        'id' => $meestStreetId ?: '',
+                        'text' => $meestStreetText ?: ''
                     ];
                 }
                 if ($meestBuilding) {

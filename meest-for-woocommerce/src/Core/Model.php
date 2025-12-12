@@ -152,14 +152,14 @@ abstract class Model
     {
         $self = new static();
 
-        $sql = "INSERT INTO {$self->getTable()} (".implode(', ', $columns).") VALUES ";
+        $sql = "INSERT IGNORE INTO {$self->getTable()} (".implode(', ', $columns).") VALUES ";
 
         $formats = array_intersect_key($self->formats, array_flip($columns));
 
         $sqlValues = [];
         foreach ($values as $value) {
             $sqlValue = $self->db->prepare( '(' . implode(', ', $formats) . ')', $value);
-            if (!empty($sqlValue)) {
+            if ($sqlValue && $sqlValue !== false && $sqlValue !== null) {
                 $sqlValues[] = $sqlValue;
             }
         }
@@ -169,8 +169,8 @@ abstract class Model
         }
 
         $sql .= implode(', ', $sqlValues);
-
-        return $self->db->query($sql);
+        
+        return $self->db->query($sql) !== false;
     }
 
     public static function truncate(): bool

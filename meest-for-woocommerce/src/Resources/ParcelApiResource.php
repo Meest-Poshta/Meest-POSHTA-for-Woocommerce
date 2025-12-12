@@ -52,7 +52,12 @@ class ParcelApiResource extends Resource
         if ($data[$type]['delivery_type'] === 'branch') {
             $arr['service'] = 'Branch';
             $arr['branchId'] = $data[$type]['branch']['id'];
+        } elseif ($data[$type]['delivery_type'] === 'poshtomat') {
+            // Поштомат обрабатывается как Branch
+            $arr['service'] = 'Branch';
+            $arr['branchId'] = $data[$type]['poshtomat']['id'];
         } else {
+            // Курьерская доставка (address)
             $arr['service'] = 'Door';
             if ($data[$type]['country']['id'] === $this->options['country_id']['ua']) {
                 $arr['cityId'] = $data[$type]['city']['id'];

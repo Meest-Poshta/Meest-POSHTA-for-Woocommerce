@@ -39,8 +39,11 @@ abstract class Table extends \WP_List_Table
             .(!empty($data['city']['text']) ? $data['city']['text'].', ' : '');
         if (isset($data['branch'])) {
             $str .= __('branch') .' '. $data['branch']['text'];
+        } elseif (isset($data['poshtomat'])) {
+            $str .= __('poshtomat') .' '. $data['poshtomat']['text'];
         } else {
-            $str .= $data['street']['text'].' '.$data['building']
+            $str .= (!empty($data['street']['text']) ? $data['street']['text'].' ' : '')
+                .(!empty($data['building']) ? $data['building'] : '')
                 .(!empty($data['flat']) ? '/'.$data['flat'] : '');
         }
 

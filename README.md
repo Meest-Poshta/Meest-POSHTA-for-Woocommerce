@@ -1,6 +1,6 @@
 # Meest for WooCommerce
 
-[![WordPress Plugin Version](https://img.shields.io/badge/version-1.3.0
+[![WordPress Plugin Version](https://img.shields.io/badge/version-1.3.2
 -blue.svg)](https://github.com/meest.com/meest-for-woocommerce)
 [![WordPress](https://img.shields.io/badge/WordPress-4.1+-green.svg)](https://wordpress.org/)
 [![WooCommerce](https://img.shields.io/badge/WooCommerce-3.6.4+-purple.svg)](https://woocommerce.com/)
@@ -241,7 +241,7 @@ composer require meest/woocommerce-plugin
 
 ## 📝 Changelog
 
-### 1.3.0 (Поточна версія)
+### 1.3.2 (Поточна версія)
 - ✨ Додано пошук відділень у випадаючому списку
 - 🐛 Виправлено помилки завантаження відділень
 

@@ -131,7 +131,7 @@ class Checkout implements Module
             }
         } elseif ($deliveryType === 'poshtomat') {
             // Для доставки в поштомат
-            if (empty($_POST["meest_{$type}_poshtomat_id"])) {
+            if (empty($_POST["meest_{$type}_branch_id"])) {
                 wc_add_notice(__('Будь ласка, виберіть поштомат', 'meest-for-woocommerce'), 'error');
             }
         } elseif ($deliveryType === 'address') {
@@ -181,8 +181,8 @@ class Checkout implements Module
             $this->setShippingAddress($order, $branchText);
         } elseif ($deliveryType === 'poshtomat') {
             // Для поштомата
-            $poshtomatId = sanitize_text_field($_POST["meest_{$type}_poshtomat_id"] ?? '');
-            $poshtomatText = sanitize_text_field($_POST["meest_{$type}_poshtomat_text"] ?? '');
+            $poshtomatId = sanitize_text_field($_POST["meest_{$type}_branch_id"] ?? '');
+            $poshtomatText = sanitize_text_field($_POST["meest_{$type}_branch_text"] ?? '');
             
             $order->update_meta_data('_meest_poshtomat_id', $poshtomatId);
             $order->update_meta_data('_meest_poshtomat_text', $poshtomatText);

@@ -96,14 +96,41 @@ class Dictionary implements \MeestShipping\Contracts\Module
                 $class = City::class;
                 $columns = ['city_uuid', 'district_uuid', 'region_uuid', 'country_uuid', 'type_id', 'name_uk', 'name_ru', 'delivery_zone'];
                 $values = function ($data) use ($countryUuid) {
-                    return in_array($data[1], ['---', '*', '***']) ? [] : [$data[0], $data[4], $data[5], $countryUuid, 1, self::decode($data[1]?: $data[2]), self::decode($data[2]?: $data[1]), $data[7]];
+                    // Skip only if UUID is missing
+                    if (empty($data[0])) {
+                        return [];
+                    }
+                    
+                    $nameUk = self::decode($data[1] ?? '');
+                    $nameRu = self::decode($data[2] ?? '');
+                    
+                    // If both names are empty or invalid markers, skip
+                    if (($nameUk === '' || in_array($nameUk, ['---', '*', '***'])) && 
+                        ($nameRu === '' || in_array($nameRu, ['---', '*', '***']))) {
+                        return [];
+                    }
+                    
+                    // Clean invalid markers
+                    if (in_array($nameUk, ['---', '*', '***'])) $nameUk = '';
+                    if (in_array($nameRu, ['---', '*', '***'])) $nameRu = '';
+                    
+                    return [
+                        $data[0], 
+                        $data[4] ?? '', 
+                        $data[5] ?? '', 
+                        $countryUuid, 
+                        1, 
+                        $nameUk ?: $nameRu, 
+                        $nameRu ?: $nameUk, 
+                        self::decode($data[7] ?? '')
+                    ];
                 };
                 break;
             case 'street':
                 $class = Street::class;
                 $columns = ['street_uuid', 'city_uuid', 'type_id', 'postcode', 'name_uk', 'name_ru', 'type_uk', 'type_ru'];
                 $values = function ($data) use ($countryUuid) {
-                    return in_array($data[3], ['---', '*', '***']) ? [] : [$data[0], $data[5], 1, $data[12] ?? null, self::decode($data[3] ?: $data[4]), self::decode($data[4] ?: $data[3]), self::decode($data[1] ?: $data[2]), self::decode($data[2] ?: $data[1])];
+                    return in_array($data[3], ['---', '*', '***']) ? [] : [$data[0], $data[5], 1, self::decode($data[12] ?? ''), self::decode($data[3] ?: $data[4]), self::decode($data[4] ?: $data[3]), self::decode($data[1] ?: $data[2]), self::decode($data[2] ?: $data[1])];
                 };
                 break;
             case 'branch':
@@ -128,7 +155,11 @@ class Dictionary implements \MeestShipping\Contracts\Module
             $rowNumber = 0;
             $rows = [];
             
-            while (false !== $data = fgetcsv($handle, 1000, ';')) {
+            while (false !== $data = fgetcsv($handle, 10000, ';')) {
+                if (empty($data) || (count($data) === 1 && empty($data[0]))) {
+                    continue;
+                }
+                
                 $data = $values($data);
                 if (empty($data)) {
                     continue;
@@ -137,21 +168,15 @@ class Dictionary implements \MeestShipping\Contracts\Module
                 $rowNumber++;
                 $rows[] = $data;
 
-                if ($rowNumber === self::MAX_ROWS) {
-                    // Try batch insert
+                if ($rowNumber >= self::MAX_ROWS) {
                     try {
-                        $result = $class::insert($columns, $rows);
-                        if ($result === false) {
-                            throw new Exception("Batch INSERT failed");
-                        }
+                        $class::insert($columns, $rows);
                     } catch (Exception $e) {
-                        // Fallback: insert one by one
                         foreach ($rows as $row) {
                             try {
                                 $class::insert($columns, [$row]);
                             } catch (Exception $ex) {
-                                // Skip rows that can't be inserted
-                                error_log('Failed to insert row: ' . json_encode($row));
+                                // Skip problematic rows
                             }
                         }
                     }
@@ -164,18 +189,13 @@ class Dictionary implements \MeestShipping\Contracts\Module
             // Insert remaining rows
             if (!empty($rows)) {
                 try {
-                    $result = $class::insert($columns, $rows);
-                    if ($result === false) {
-                        throw new Exception("Final batch INSERT failed");
-                    }
+                    $class::insert($columns, $rows);
                 } catch (Exception $e) {
-                    // Fallback: insert one by one
                     foreach ($rows as $row) {
                         try {
                             $class::insert($columns, [$row]);
                         } catch (Exception $ex) {
-                            // Skip rows that can't be inserted
-                            error_log('Failed to insert row: ' . json_encode($row));
+                            // Skip problematic rows
                         }
                     }
                 }
@@ -187,35 +207,25 @@ class Dictionary implements \MeestShipping\Contracts\Module
 
     private static function decode(string $str): string
     {
-        if (empty($str)) {
+        if ($str === '' || $str === null) {
             return '';
         }
         
-        // Convert from Windows-1251 to UTF-8
+        // Try Windows-1251 to UTF-8 conversion
         $decoded = @mb_convert_encoding($str, 'UTF-8', 'Windows-1251');
         
-        if ($decoded === false || $decoded === null) {
-            $decoded = $str;
-        }
-        
-        // Clean invalid UTF-8 sequences
-        if (function_exists('mb_scrub')) {
-            $decoded = mb_scrub($decoded, 'UTF-8');
-        }
-        
-        // Additional cleaning
-        if (!mb_check_encoding($decoded, 'UTF-8')) {
-            $cleaned = @iconv('UTF-8', 'UTF-8//IGNORE', $decoded);
-            if ($cleaned !== false) {
-                $decoded = $cleaned;
+        // If conversion failed, try alternative methods
+        if ($decoded === false || $decoded === null || $decoded === '') {
+            // Try iconv as fallback
+            $decoded = @iconv('Windows-1251', 'UTF-8//IGNORE', $str);
+            if ($decoded === false || $decoded === '') {
+                // Last resort - use original string
+                $decoded = $str;
             }
         }
         
-        // Remove control characters
-        $decoded = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $decoded);
-        
-        // WordPress sanitization
-        $decoded = sanitize_text_field($decoded);
+        // Remove NULL bytes
+        $decoded = str_replace("\0", '', $decoded);
         
         return trim($decoded);
     }
