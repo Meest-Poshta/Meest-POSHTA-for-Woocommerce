@@ -62,6 +62,21 @@ msgstr "Відділення"
 msgid "Branch delivery"
 msgstr "Доставка у відділення"
 
+msgid "Branch (Warehouse)"
+msgstr "Відділення (склад)"
+
+msgid "Poshtomat"
+msgstr "Поштомат"
+
+msgid "Address (Courier)"
+msgstr "Адреса (кур'єр)"
+
+msgid "Delivery types"
+msgstr "Типи доставки"
+
+msgid "Select which delivery types should be available for customers"
+msgstr "Оберіть, які типи доставки мають бути доступні покупцям"
+
 msgid "Calculate shipping cost"
 msgstr "Розрахувати вартість доставки"
 
@@ -158,10 +173,28 @@ msgstr "Ім'я"
 msgid "Flat"
 msgstr "Квартира"
 
+msgid "Post code"
+msgstr "Поштовий індекс"
+
 msgid "Fixed"
 msgstr "Фіксована"
 
+msgid "Save"
+msgstr "Зберегти"
+
+msgid "Create"
+msgstr "Створити"
+
+msgid "Update"
+msgstr "Оновити"
+
+msgid "Cancel"
+msgstr "Скасувати"
+
 msgid "Fixed shipping cost"
+msgstr "Фіксована вартість доставки"
+
+msgid "Fixed delivery cost"
 msgstr "Фіксована вартість доставки"
 
 msgid "Fixed insurance"
@@ -241,6 +274,9 @@ msgstr "Прізвище"
 
 msgid "Last updated at"
 msgstr "Останнє оновлення"
+
+msgid "LWH"
+msgstr "Д×Ш×В"
 
 msgid "Length x Width x Height"
 msgstr "Довжина х Ширина х Висота"

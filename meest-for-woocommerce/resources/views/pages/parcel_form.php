@@ -56,8 +56,8 @@ $link = 'admin.php?page=meest_parcel&action='.(is_null($parcel->id) ? 'create&po
                                         </th>
                                         <td>
                                             <select id="meest_parcel_payer" name="parcel[payer]">
-                                                <option value="0" <?php echo $parcel->receiver_pay == 0 ? 'selected' : '' ?>><?php _e('Sender') ?></option>
-                                                <option value="1" <?php echo $parcel->receiver_pay == 1 ? 'selected' : '' ?>><?php _e('Receiver') ?></option>
+                                                <option value="0" <?php echo $parcel->receiver_pay == 0 ? 'selected' : '' ?>><?php _e('Sender', MEEST_PLUGIN_DOMAIN) ?></option>
+                                                <option value="1" <?php echo $parcel->receiver_pay == 1 ? 'selected' : '' ?>><?php _e('Receiver', MEEST_PLUGIN_DOMAIN) ?></option>
                                             </select>
                                         </td>
                                     </tr>
@@ -67,8 +67,8 @@ $link = 'admin.php?page=meest_parcel&action='.(is_null($parcel->id) ? 'create&po
                                         </th>
                                         <td>
                                             <select id="meest_parcel_pay_type" name="parcel[pay_type]">
-                                                <option value="0" <?php echo $parcel->pay_type == 0 ? 'selected' : '' ?>><?php _e('Non cash') ?></option>
-                                                <option value="1" <?php echo $parcel->pay_type == 1 ? 'selected' : '' ?>><?php _e('Cash') ?></option>
+                                                <option value="0" <?php echo $parcel->pay_type == 0 ? 'selected' : '' ?>><?php _e('Non cash', MEEST_PLUGIN_DOMAIN) ?></option>
+                                                <option value="1" <?php echo $parcel->pay_type == 1 ? 'selected' : '' ?>><?php _e('Cash', MEEST_PLUGIN_DOMAIN) ?></option>
                                             </select>
                                         </td>
                                     </tr>
@@ -266,7 +266,7 @@ $link = 'admin.php?page=meest_parcel&action='.(is_null($parcel->id) ? 'create&po
                                                     id="meest_sender_street_id"
                                                     name="sender[street][id]"
                                                     value="<?php echo esc_attr($sender->street['id'] ?? '') ?>"
-                                                    data-placeholder="<?php _e('Select a street') ?>"
+                                                    data-placeholder="<?php _e('Select a street', MEEST_PLUGIN_DOMAIN) ?>"
                                             >
                                                 <option value="<?php echo esc_attr($sender->street['id'] ?? '') ?>"><?php echo esc_attr($sender->street['text'] ?? '') ?></option>
                                             </select>
@@ -561,11 +561,11 @@ $link = 'admin.php?page=meest_parcel&action='.(is_null($parcel->id) ? 'create&po
                             </div>
                         </div>
                         <p class="submit">
-                            <a class="button button-error button-large" href="?page=meest_parcel"><?php _e('Cancel') ?></a>
+                            <a class="button button-error button-large" href="?page=meest_parcel"><?php _e('Cancel', MEEST_PLUGIN_DOMAIN) ?></a>
                             <?php if (is_null($parcel->id)) : ?>
-                                <input type="submit" value="<?php _e('Create') ?>" class="button button-primary button-large">
+                                <input type="submit" value="<?php _e('Create', MEEST_PLUGIN_DOMAIN) ?>" class="button button-primary button-large">
                             <?php else : ?>
-                                <input type="submit" value="<?php _e('Update') ?>" class="button button-primary button-large">
+                                <input type="submit" value="<?php _e('Update', MEEST_PLUGIN_DOMAIN) ?>" class="button button-primary button-large">
                             <?php endif; ?>
                             <?php if (!empty($parcel->updated_at)) : ?>
                             <span style="float: right;"><?php _e('Last updated at', MEEST_PLUGIN_DOMAIN).': '.$parcel->updated_at ?></span>

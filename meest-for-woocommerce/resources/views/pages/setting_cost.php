@@ -126,6 +126,6 @@ $deliveryCostType = $options['shipping']['delivery_cost_type'];
         </div>
     </div>
     <p class="submit">
-        <button type="submit" name="submit" class="button button-primary button-large" value="Save changes"><?php _e('Save') ?></button>
+        <button type="submit" name="submit" class="button button-primary button-large" value="Save changes"><?php _e('Save', MEEST_PLUGIN_DOMAIN) ?></button>
     </p>
 </form>

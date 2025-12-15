@@ -207,7 +207,7 @@ use MeestShipping\Helpers\Html;
                                     type="text"
                                     name="option[address][flat]"
                                     value="<?php echo esc_attr($options['address']['flat']) ?>"
-                                    placeholder="<?php _e('Flat') ?>"
+                                    placeholder="<?php _e('Flat', MEEST_PLUGIN_DOMAIN) ?>"
                             >
                         </div>
                         <div>
@@ -216,7 +216,7 @@ use MeestShipping\Helpers\Html;
                                     type="text"
                                     name="option[address][postcode]"
                                     value="<?php echo esc_attr($options['address']['postcode']) ?>"
-                                    placeholder="<?php _e('Post code') ?>"
+                                    placeholder="<?php _e('Post code', MEEST_PLUGIN_DOMAIN) ?>"
                             >
                         </div>
                     </td>
@@ -236,7 +236,7 @@ use MeestShipping\Helpers\Html;
                                 id="meest_address_branch_id"
                                 name="option[address][branch][id]"
                                 value="<?php echo esc_attr($options['address']['branch']['id']) ?>"
-                                data-placeholder="<?php _e('Select a branch') ?>"
+                                data-placeholder="<?php _e('Select a branch', MEEST_PLUGIN_DOMAIN) ?>"
                         >
                             <option value="<?php echo esc_attr($options['address']['branch']['id']) ?>"><?php echo esc_attr($options['address']['branch']['text']) ?></option>
                         </select>
@@ -407,6 +407,6 @@ use MeestShipping\Helpers\Html;
 
     <?php endif; ?>
     <p class="submit">
-        <button type="submit" name="submit" class="button button-primary button-large" value="Save changes"><?php _e('Save') ?></button>
+        <button type="submit" name="submit" class="button button-primary button-large" value="Save changes"><?php _e('Save', MEEST_PLUGIN_DOMAIN) ?></button>
     </p>
 </form>
