@@ -249,6 +249,10 @@ class Checkout implements Module
             $this->setShippingAddress($order, $fullAddress);
         }
 
+        // Устанавливаем страну
+        $countryCode = sanitize_text_field($_POST["meest_{$type}_country"] ?? '');
+        $this->setShippingCountry($order, $countryCode);
+
         // Устанавливаем город
         $cityName = sanitize_text_field($_POST["meest_{$type}_city_text"] ?? '');
         $this->setShippingCity($order, $cityName);
@@ -274,6 +278,19 @@ class Checkout implements Module
             $order->set_billing_address_1($address);
         } else {
             $order->set_shipping_address_1($address);
+        }
+    }
+
+    /**
+     * Устанавливаем страну доставки
+     */
+    private function setShippingCountry($order, $country)
+    {
+        $country = sanitize_text_field($country);
+        if ('billing_only' === get_option('woocommerce_ship_to_destination')) {
+            $order->set_billing_country($country);
+        } else {
+            $order->set_shipping_country($country);
         }
     }
 

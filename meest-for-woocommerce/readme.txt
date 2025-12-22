@@ -4,7 +4,7 @@ Tags: meest, commerce, woocommerce, shop, post, delivery, shipping, meest-expres
 Requires at least: 4.1
 Tested up to: 6.4
 Requires PHP: 7.0
-Stable tag: 1.4.2
+Stable tag: 1.4.5
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -152,8 +152,8 @@ License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
 == Changelog ==
 
-= 1.4.2 =
-* Fixed: Address display issue after order completion
+= 1.4.5 =
+* Fixed: Final fix for display fields
 
 = 1.4.1 =
 * Fixed: Added Ukrainian language support for all settings fields
