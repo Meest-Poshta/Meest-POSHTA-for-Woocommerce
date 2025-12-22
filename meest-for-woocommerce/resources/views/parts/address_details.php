@@ -21,6 +21,11 @@
             <th><?php _e('Branch', MEEST_PLUGIN_DOMAIN) ?>:</th>
             <td><?php echo esc_html($address['branch']['text'] ?? '') ?></td>
         </tr>
+    <?php elseif (isset($address['delivery_type']) && $address['delivery_type'] === 'poshtomat'): ?>
+        <tr>
+            <th><?php _e('Poshtomat', MEEST_PLUGIN_DOMAIN) ?>:</th>
+            <td><?php echo esc_html($address['poshtomat']['text'] ?? '') ?></td>
+        </tr>
     <?php else: ?>
         <tr>
             <th><?php _e('Street', MEEST_PLUGIN_DOMAIN) ?>:</th>

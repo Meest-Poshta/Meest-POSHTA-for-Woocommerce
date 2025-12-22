@@ -159,14 +159,36 @@ class Checkout implements Module
         // ВАЖНО: используем $_POST вместо $data, так как WooCommerce не передает кастомные поля в $data
         $deliveryType = sanitize_text_field($_POST["meest_{$type}_delivery_type"] ?? 'branch');
         $countryId = sanitize_text_field($_POST["meest_{$type}_country_id"] ?? '');
+        $countryCode = sanitize_text_field($_POST["meest_{$type}_country"] ?? '');
+        $countryText = sanitize_text_field($_POST["meest_{$type}_country_text"] ?? '');
         $cityId = sanitize_text_field($_POST["meest_{$type}_city_id"] ?? '');
         $cityText = sanitize_text_field($_POST["meest_{$type}_city_text"] ?? '');
+        $regionId = sanitize_text_field($_POST["meest_{$type}_region_id"] ?? '');
+        $regionText = sanitize_text_field($_POST["meest_{$type}_region_text"] ?? '');
 
         // Сохраняем базовые данные
         $order->update_meta_data('_meest_delivery_type', $deliveryType);
         $order->update_meta_data('_meest_country_id', $countryId);
         $order->update_meta_data('_meest_city_id', $cityId);
         $order->update_meta_data('_meest_city_text', $cityText);
+
+        // Формируем данные адреса для сохранения в receiver
+        $receiverData = [
+            'delivery_type' => $deliveryType,
+            'country' => [
+                'id' => $countryId,
+                'code' => $countryCode,
+                'text' => $countryText
+            ],
+            'city' => [
+                'id' => $cityId,
+                'text' => $cityText
+            ],
+            'region' => [
+                'id' => $regionId,
+                'text' => $regionText
+            ]
+        ];
 
         // Сохраняем данные в зависимости от типа доставки
         if ($deliveryType === 'branch') {
@@ -177,6 +199,11 @@ class Checkout implements Module
             $order->update_meta_data('_meest_branch_id', $branchId);
             $order->update_meta_data('_meest_branch_text', $branchText);
             
+            $receiverData['branch'] = [
+                'id' => $branchId,
+                'text' => $branchText
+            ];
+            
             // Устанавливаем адрес доставки как название отделения
             $this->setShippingAddress($order, $branchText);
         } elseif ($deliveryType === 'poshtomat') {
@@ -186,6 +213,11 @@ class Checkout implements Module
             
             $order->update_meta_data('_meest_poshtomat_id', $poshtomatId);
             $order->update_meta_data('_meest_poshtomat_text', $poshtomatText);
+            
+            $receiverData['poshtomat'] = [
+                'id' => $poshtomatId,
+                'text' => $poshtomatText
+            ];
             
             // Устанавливаем адрес доставки как название поштомата
             $this->setShippingAddress($order, $poshtomatText);
@@ -201,6 +233,13 @@ class Checkout implements Module
             $order->update_meta_data('_meest_building', $building);
             $order->update_meta_data('_meest_flat', $flat);
             
+            $receiverData['street'] = [
+                'id' => $streetId,
+                'text' => $streetText
+            ];
+            $receiverData['building'] = $building;
+            $receiverData['flat'] = $flat;
+            
             // Формируем полный адрес
             $fullAddress = $streetText . ', ' . $building;
             if (!empty($flat)) {
@@ -213,6 +252,14 @@ class Checkout implements Module
         // Устанавливаем город
         $cityName = sanitize_text_field($_POST["meest_{$type}_city_text"] ?? '');
         $this->setShippingCity($order, $cityName);
+
+        // Сохраняем данные адреса в мета-поле receiver элемента доставки
+        $shippingMethods = $order->get_shipping_methods();
+        if (!empty($shippingMethods)) {
+            $shippingItem = array_shift($shippingMethods);
+            $shippingItem->update_meta_data('receiver', $receiverData);
+            $shippingItem->save_meta_data();
+        }
 
         $order->save();
     }
