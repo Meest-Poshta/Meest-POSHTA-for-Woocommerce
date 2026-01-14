@@ -10,7 +10,7 @@
         <form method="get">
             <img class="page-container-logo" src="<?php echo MEEST_PLUGIN_URL.'public\img\icon_big.png' ?>">
             <h1 class="wp-heading-inline"><?php _e('Parcels', MEEST_PLUGIN_DOMAIN) ?></h1>
-            <a href="admin.php?page=meest_parcel&action=create" class="page-title-action button-primary button-large"><?php _e('Create') ?></a>
+            <a href="admin.php?page=meest_parcel&action=create" class="page-title-action button-primary button-large"><?php _e('Create', MEEST_PLUGIN_DOMAIN) ?></a>
             <?php if ($totalPickup > 0): ?>
                 <a href="admin.php?page=meest_pickup&action=create" class="page-title-action button-warning button-large"><?php echo sprintf(__('Create pickup for %s parcels', MEEST_PLUGIN_DOMAIN), $totalPickup) ?></a>
             <?php endif ?>

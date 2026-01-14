@@ -36,6 +36,7 @@ class Checkout implements Module
         
         // Сохранение данных в заказ
         add_action('woocommerce_checkout_create_order', [$this, 'saveOrderData'], 10, 2);
+        add_action('woocommerce_checkout_update_order_meta', [$this, 'updateOrderAddress'], 20, 1);
         
         // Загрузка скриптов и стилей
         add_action('wp_enqueue_scripts', [$this, 'enqueueAssets']);
@@ -131,7 +132,7 @@ class Checkout implements Module
             }
         } elseif ($deliveryType === 'poshtomat') {
             // Для доставки в поштомат
-            if (empty($_POST["meest_{$type}_poshtomat_id"])) {
+            if (empty($_POST["meest_{$type}_branch_id"])) {
                 wc_add_notice(__('Будь ласка, виберіть поштомат', 'meest-for-woocommerce'), 'error');
             }
         } elseif ($deliveryType === 'address') {
@@ -159,14 +160,36 @@ class Checkout implements Module
         // ВАЖНО: используем $_POST вместо $data, так как WooCommerce не передает кастомные поля в $data
         $deliveryType = sanitize_text_field($_POST["meest_{$type}_delivery_type"] ?? 'branch');
         $countryId = sanitize_text_field($_POST["meest_{$type}_country_id"] ?? '');
+        $countryCode = sanitize_text_field($_POST["meest_{$type}_country"] ?? '');
+        $countryText = sanitize_text_field($_POST["meest_{$type}_country_text"] ?? '');
         $cityId = sanitize_text_field($_POST["meest_{$type}_city_id"] ?? '');
         $cityText = sanitize_text_field($_POST["meest_{$type}_city_text"] ?? '');
+        $regionId = sanitize_text_field($_POST["meest_{$type}_region_id"] ?? '');
+        $regionText = sanitize_text_field($_POST["meest_{$type}_region_text"] ?? '');
 
         // Сохраняем базовые данные
         $order->update_meta_data('_meest_delivery_type', $deliveryType);
         $order->update_meta_data('_meest_country_id', $countryId);
         $order->update_meta_data('_meest_city_id', $cityId);
         $order->update_meta_data('_meest_city_text', $cityText);
+
+        // Формируем данные адреса для сохранения в receiver
+        $receiverData = [
+            'delivery_type' => $deliveryType,
+            'country' => [
+                'id' => $countryId,
+                'code' => $countryCode,
+                'text' => $countryText
+            ],
+            'city' => [
+                'id' => $cityId,
+                'text' => $cityText
+            ],
+            'region' => [
+                'id' => $regionId,
+                'text' => $regionText
+            ]
+        ];
 
         // Сохраняем данные в зависимости от типа доставки
         if ($deliveryType === 'branch') {
@@ -177,15 +200,25 @@ class Checkout implements Module
             $order->update_meta_data('_meest_branch_id', $branchId);
             $order->update_meta_data('_meest_branch_text', $branchText);
             
+            $receiverData['branch'] = [
+                'id' => $branchId,
+                'text' => $branchText
+            ];
+            
             // Устанавливаем адрес доставки как название отделения
             $this->setShippingAddress($order, $branchText);
         } elseif ($deliveryType === 'poshtomat') {
             // Для поштомата
-            $poshtomatId = sanitize_text_field($_POST["meest_{$type}_poshtomat_id"] ?? '');
-            $poshtomatText = sanitize_text_field($_POST["meest_{$type}_poshtomat_text"] ?? '');
+            $poshtomatId = sanitize_text_field($_POST["meest_{$type}_branch_id"] ?? '');
+            $poshtomatText = sanitize_text_field($_POST["meest_{$type}_branch_text"] ?? '');
             
             $order->update_meta_data('_meest_poshtomat_id', $poshtomatId);
             $order->update_meta_data('_meest_poshtomat_text', $poshtomatText);
+            
+            $receiverData['poshtomat'] = [
+                'id' => $poshtomatId,
+                'text' => $poshtomatText
+            ];
             
             // Устанавливаем адрес доставки как название поштомата
             $this->setShippingAddress($order, $poshtomatText);
@@ -201,6 +234,13 @@ class Checkout implements Module
             $order->update_meta_data('_meest_building', $building);
             $order->update_meta_data('_meest_flat', $flat);
             
+            $receiverData['street'] = [
+                'id' => $streetId,
+                'text' => $streetText
+            ];
+            $receiverData['building'] = $building;
+            $receiverData['flat'] = $flat;
+            
             // Формируем полный адрес
             $fullAddress = $streetText . ', ' . $building;
             if (!empty($flat)) {
@@ -210,9 +250,71 @@ class Checkout implements Module
             $this->setShippingAddress($order, $fullAddress);
         }
 
+        // Устанавливаем страну
+        $countryCode = sanitize_text_field($_POST["meest_{$type}_country"] ?? '');
+        $this->setShippingCountry($order, $countryCode);
+
         // Устанавливаем город
         $cityName = sanitize_text_field($_POST["meest_{$type}_city_text"] ?? '');
         $this->setShippingCity($order, $cityName);
+
+        // Сохраняем данные адреса в мета-поле receiver элемента доставки
+        $shippingMethods = $order->get_shipping_methods();
+        if (!empty($shippingMethods)) {
+            $shippingItem = array_shift($shippingMethods);
+            $shippingItem->update_meta_data('receiver', $receiverData);
+            $shippingItem->save_meta_data();
+        }
+
+        $order->save();
+    }
+
+    /**
+     * Оновлюємо адресу після того як WooCommerce встановив свої значення
+     */
+    public function updateOrderAddress($orderId)
+    {
+        if (!$this->isMeestShippingSelected()) {
+            return;
+        }
+
+        $order = wc_get_order($orderId);
+        if (!$order) {
+            return;
+        }
+
+        $type = $this->getFieldType();
+        $deliveryType = sanitize_text_field($_POST["meest_{$type}_delivery_type"] ?? 'branch');
+
+        $address = '';
+        
+        // Отримуємо адресу залежно від типу доставки
+        if ($deliveryType === 'branch') {
+            $address = sanitize_text_field($_POST["meest_{$type}_branch_text"] ?? '');
+        } elseif ($deliveryType === 'poshtomat') {
+            $address = sanitize_text_field($_POST["meest_{$type}_branch_text"] ?? '');
+        } elseif ($deliveryType === 'address') {
+            $streetText = sanitize_text_field($_POST["meest_{$type}_street_text"] ?? '');
+            $building = sanitize_text_field($_POST["meest_{$type}_building"] ?? '');
+            $flat = sanitize_text_field($_POST["meest_{$type}_flat"] ?? '');
+            
+            $address = $streetText . ', ' . $building;
+            if (!empty($flat)) {
+                $address .= ' кв. ' . $flat;
+            }
+        }
+
+        if (!empty($address)) {
+            $order->set_billing_address_1($address);
+            $order->set_shipping_address_1($address);
+        }
+
+        // Встановлюємо місто
+        $cityName = sanitize_text_field($_POST["meest_{$type}_city_text"] ?? '');
+        if (!empty($cityName)) {
+            $order->set_billing_city($cityName);
+            $order->set_shipping_city($cityName);
+        }
 
         $order->save();
     }
@@ -223,10 +325,25 @@ class Checkout implements Module
     private function setShippingAddress($order, $address)
     {
         $address = sanitize_text_field($address);
-        if ('billing_only' === get_option('woocommerce_ship_to_destination')) {
-            $order->set_billing_address_1($address);
+        
+        // Встановлюємо адресу в обидва поля для надійності
+        $order->set_billing_address_1($address);
+        $order->set_shipping_address_1($address);
+    }
+
+    /**
+     * Устанавливаем страну доставки
+     */
+    private function setShippingCountry($order, $country)
+    {
+        $country = sanitize_text_field($country);
+        $shipToDestination = get_option('woocommerce_ship_to_destination');
+        
+        // Перевіряємо обидва варіанти: 'billing' та 'billing_only'
+        if (in_array($shipToDestination, ['billing', 'billing_only'])) {
+            $order->set_billing_country($country);
         } else {
-            $order->set_shipping_address_1($address);
+            $order->set_shipping_country($country);
         }
     }
 
@@ -236,11 +353,10 @@ class Checkout implements Module
     private function setShippingCity($order, $city)
     {
         $city = sanitize_text_field($city);
-        if ('billing_only' === get_option('woocommerce_ship_to_destination')) {
-            $order->set_billing_city($city);
-        } else {
-            $order->set_shipping_city($city);
-        }
+        
+        // Встановлюємо місто в обидва поля для надійності
+        $order->set_billing_city($city);
+        $order->set_shipping_city($city);
     }
 
     /**
@@ -466,3 +582,4 @@ class Checkout implements Module
     }
 
 }
+

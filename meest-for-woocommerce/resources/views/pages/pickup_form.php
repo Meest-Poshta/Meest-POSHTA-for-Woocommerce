@@ -203,8 +203,8 @@ $link = 'admin.php?page=meest_pickup&action='.(is_null($pickup->id) ? 'create' :
                                         </th>
                                         <td>
                                             <select id="meest_pickup_payer" name="pickup[payer]">
-                                                <option value="0" <?php echo $pickup->receiver_pay == 0 ? 'selected' : '' ?>><?php _e('Sender') ?></option>
-                                                <option value="1" <?php echo $pickup->receiver_pay == 1 ? 'selected' : '' ?>><?php _e('Receiver') ?></option>
+                                                <option value="0" <?php echo $pickup->receiver_pay == 0 ? 'selected' : '' ?>><?php _e('Sender', MEEST_PLUGIN_DOMAIN) ?></option>
+                                                <option value="1" <?php echo $pickup->receiver_pay == 1 ? 'selected' : '' ?>><?php _e('Receiver', MEEST_PLUGIN_DOMAIN) ?></option>
                                             </select>
                                         </td>
                                     </tr>
@@ -214,8 +214,8 @@ $link = 'admin.php?page=meest_pickup&action='.(is_null($pickup->id) ? 'create' :
                                         </th>
                                         <td>
                                             <select id="meest_pickup_pay_type" name="pickup[pay_type]">
-                                                <option value="0" <?php echo $pickup->receiver_pay == 0 ? 'selected' : '' ?>><?php _e('Non cash') ?></option>
-                                                <option value="1" <?php echo $pickup->receiver_pay == 1 ? 'selected' : '' ?>><?php _e('Cash') ?></option>
+                                                <option value="0" <?php echo $pickup->receiver_pay == 0 ? 'selected' : '' ?>><?php _e('Non cash', MEEST_PLUGIN_DOMAIN) ?></option>
+                                                <option value="1" <?php echo $pickup->receiver_pay == 1 ? 'selected' : '' ?>><?php _e('Cash', MEEST_PLUGIN_DOMAIN) ?></option>
                                             </select>
                                         </td>
                                     </tr>
@@ -264,11 +264,11 @@ $link = 'admin.php?page=meest_pickup&action='.(is_null($pickup->id) ? 'create' :
                             </div>
                         </div>
                         <p class="submit">
-                            <a class="button button-error button-large" href="?page=meest_pickup"><?php _e('Cancel') ?></a>
+                            <a class="button button-error button-large" href="?page=meest_pickup"><?php _e('Cancel', MEEST_PLUGIN_DOMAIN) ?></a>
                             <?php if (is_null($pickup->id)) : ?>
-                                <input type="submit" value="<?php _e('Create') ?>" class="button button-primary button-large">
+                                <input type="submit" value="<?php _e('Create', MEEST_PLUGIN_DOMAIN) ?>" class="button button-primary button-large">
                             <?php else : ?>
-                                <input type="submit" value="<?php _e('Update') ?>" class="button button-primary button-large">
+                                <input type="submit" value="<?php _e('Update', MEEST_PLUGIN_DOMAIN) ?>" class="button button-primary button-large">
                             <?php endif; ?>
 
                             <?php if (!empty($pickup->updated_at)) : ?>

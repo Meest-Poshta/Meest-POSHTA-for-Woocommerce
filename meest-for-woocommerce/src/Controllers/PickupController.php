@@ -40,7 +40,7 @@ class PickupController extends Controller
 
     public function create()
     {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_woocommerce')) {
             return false;
         }
 
@@ -128,7 +128,7 @@ class PickupController extends Controller
 
     public function update()
     {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_woocommerce')) {
             return false;
         }
         $pickup = Pickup::find(sanitize_text_field($_GET['id']));

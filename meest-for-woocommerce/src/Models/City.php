@@ -32,26 +32,40 @@ class City extends Model
         'delivery_zone' => '%s',
     ];
 
-    public static function search($text = null, $countryUuid = null, int $limit = 25)
+    public static function search($text = null, $countryUuid = null, int $limit = 50)
     {
         $self = new static();
         $district = new District();
         $region = new Region();
 
-        $query = "SELECT c.*, d.name_uk AS district_name_uk, d.name_uk AS district_name_ru, r.name_uk AS region_name_uk, d.name_uk AS region_name_ru";
+        $query = "SELECT c.*, d.name_uk AS district_name_uk, d.name_ru AS district_name_ru, r.name_uk AS region_name_uk, r.name_ru AS region_name_ru";
         $query .= " FROM {$self->getTable()} AS c";
         $query .= " LEFT JOIN {$district->getTable()} AS d ON d.district_uuid = c.district_uuid";
         $query .= " LEFT JOIN {$region->getTable()} AS r ON r.region_uuid = c.region_uuid";
 
+        $where = [];
         if (!empty($text)) {
+            $text = $self->db->esc_like($text);
             $where[] = "(c.name_uk LIKE '%$text%' OR c.name_ru LIKE '%$text%')";
         }
         if (!empty($countryUuid)) {
+            $countryUuid = esc_sql($countryUuid);
             $where[] = "c.country_uuid = '$countryUuid'";
         }
         if (!empty($where)) {
             $query .= ' WHERE ' . implode(' AND ', $where);
         }
+        
+        // Sort: exact match first, then starts with, then contains
+        if (!empty($text)) {
+            $query .= " ORDER BY 
+                CASE 
+                    WHEN c.name_uk = '$text' OR c.name_ru = '$text' THEN 1
+                    WHEN c.name_uk LIKE '$text%' OR c.name_ru LIKE '$text%' THEN 2
+                    ELSE 3
+                END, c.name_uk";
+        }
+        
         $query .= " LIMIT $limit";
 
         return $self->db->get_results($query, ARRAY_A);

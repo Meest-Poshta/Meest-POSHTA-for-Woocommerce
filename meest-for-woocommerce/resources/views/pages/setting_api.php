@@ -70,6 +70,20 @@ use MeestShipping\Helpers\Html;
                     </td>
                 </tr>
                 <tr>
+                    <th scope="row">
+                        <label><?php _e('Contract ID', MEEST_PLUGIN_DOMAIN) ?></label>
+                    </th>
+                    <td colspan="3">
+                        <input
+                                type="text"
+                                name="option[credential][contract_id]"
+                                value="<?php echo esc_attr($options['credential']['contract_id'] ?? '') ?>"
+                                placeholder="<?php _e('Contract ID for COD returns (optional)', MEEST_PLUGIN_DOMAIN) ?>"
+                        >
+                        <p class="description"><?php _e('If specified, cardForCOD is optional when creating parcels with COD', MEEST_PLUGIN_DOMAIN) ?></p>
+                    </td>
+                </tr>
+                <tr>
                     <th scope="row" colspan="4">
                         <p class="hint"><?php _e('If you do not have an API key, you can get it by following the link', MEEST_PLUGIN_DOMAIN) ?> <a target="_blank" href="https://wiki.meest-group.com/api/ua/v3.0/openAPI">openAPI</a></p>
                     </th>
@@ -114,6 +128,6 @@ use MeestShipping\Helpers\Html;
         </div>
     </div>
     <p class="submit">
-        <button type="submit" name="submit" class="button button-primary button-large" value="Save changes"><?php _e('Save') ?></button>
+        <button type="submit" name="submit" class="button button-primary button-large" value="Save changes"><?php _e('Save', MEEST_PLUGIN_DOMAIN) ?></button>
     </p>
 </form>

@@ -8,12 +8,18 @@ class ParcelApiResource extends Resource
     public function toArray(): array
     {
         $places = $this->getPlaces();
+        $codAmount = $this->options['shipping']['auto_cod'] == 1 ? $this->data['parcel']['cod'] : null;
 
-        return [
-            'COD' => $this->options['shipping']['auto_cod'] == 1 ? $this->data['parcel']['cod'] : null,
-            'payType' => $this->data['parcel']['pay_type'] == 1 ? 'cash' : 'noncash',
+        $result = [
+            'parcelNumber' => '',
+            'sendingDate' => date('d.m.Y'),
+            'contractID' => $this->options['credential']['contract_id'] ?? '',
+            'COD' => $codAmount,
+            'placesItems' => $places,
+            'payType' => $this->data['parcel']['pay_type'] == 1 ? 'cash' : 'nonCash',
+            'orderNumber' => $this->data['order']['id'] ?? '',
             'receiverPay' => (bool) $this->data['parcel']['payer'],
-            'notation' => $this->data['parcel']['notation'],
+            'info4Sticker' => true,
             'sender' => array_merge(
                 $this->getUser($this->data, 'sender'),
                 $this->getAddress($this->data, 'sender')
@@ -22,16 +28,24 @@ class ParcelApiResource extends Resource
                 $this->getUser($this->data, 'receiver'),
                 $this->getAddress($this->data, 'receiver')
             ),
-            'placesItems' => $places,
-            /*'contentsItems' => array_map(static function ($item) {
-                return [
-                    'contentName' => $item['contentName'],
-                    'quantity' => $item['quantity'],
-                    'weight' => $item['weight'] ?: null,
-                    'value' => $item['value'],
-                ];
-            }, $items),*/
         ];
+
+        // Добавляем notation если есть
+        if (!empty($this->data['parcel']['notation'])) {
+            $result['notation'] = $this->data['parcel']['notation'];
+        }
+
+        // Добавляем cardForCOD только если есть COD, указана карта И нет contractID
+        // API не принимает cardForCOD если есть contractID
+        if ($codAmount && !empty($this->data['parcel']['card_number']) && empty($result['contractID'])) {
+            $result['cardForCOD'] = [
+                'number' => $this->data['parcel']['card_number'],
+                'ownername' => $this->data['parcel']['card_ownername'] ?? '',
+                'ownermobile' => $this->data['parcel']['card_ownermobile'] ?? '',
+            ];
+        }
+
+        return $result;
     }
 
     private function getUser($data, $type): array
@@ -45,14 +59,17 @@ class ParcelApiResource extends Resource
 
     private function getAddress($data, $type): array
     {
-        $arr = [
-            'countryId' => $data[$type]['country']['id']
-        ];
+        $arr = [];
 
         if ($data[$type]['delivery_type'] === 'branch') {
             $arr['service'] = 'Branch';
-            $arr['branchId'] = $data[$type]['branch']['id'];
+            $arr['branchID'] = $data[$type]['branch']['id'];
+        } elseif ($data[$type]['delivery_type'] === 'poshtomat') {
+            // Поштомат обрабатывается как Branch
+            $arr['service'] = 'Branch';
+            $arr['branchID'] = $data[$type]['poshtomat']['id'];
         } else {
+            // Курьерская доставка (address)
             $arr['service'] = 'Door';
             if ($data[$type]['country']['id'] === $this->options['country_id']['ua']) {
                 $arr['cityId'] = $data[$type]['city']['id'];
@@ -71,15 +88,19 @@ class ParcelApiResource extends Resource
 
     private function getPlaces(): array
     {
+        $length = floatval($this->data['parcel']['lwh'][0]);
+        $width = floatval($this->data['parcel']['lwh'][1]);
+        $height = floatval($this->data['parcel']['lwh'][2]);
+        
         $arr[] = [
-            'quantity' => 1,
+            'formatID' => '',
             'insurance' => $this->data['parcel']['insurance'],
-            'weight' => $this->data['parcel']['weight'],
-            'pack_type' => $this->data['parcel']['pack_type'],
-            'length' => $this->data['parcel']['lwh'][0],
-            'width' => $this->data['parcel']['lwh'][1],
-            'height' => $this->data['parcel']['lwh'][2],
-            //'placeVolume' => 0,
+            'height' => number_format($height, 2, '.', ''),
+            'length' => number_format($length, 2, '.', ''),
+            'quantity' => '1',
+            'width' => number_format($width, 2, '.', ''),
+            'weight' => number_format(floatval($this->data['parcel']['weight']), 2, '.', ''),
+            'volume' => $length * $width * $height,
         ];
 
         return $arr;

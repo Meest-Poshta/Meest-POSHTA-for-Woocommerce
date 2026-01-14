@@ -5,7 +5,7 @@
  * Plugin Name: Meest for WooCommerce
  * Plugin URI:  https://github.com/meest.com/meest-for-woocommerce
  * Description: Manage parcels, pickups and more via Meest
- * Version: 1.3.1
+ * Version: 1.5.1
  * Author: Meest.com
  * Author URI: https://github.com/meest.com
  * Email: webdeveloper.eu@gmail.com
@@ -26,7 +26,7 @@ use MeestShipping\Modules\Meest;
 defined( 'ABSPATH' ) || exit;
 defined('DS') || define('DS', DIRECTORY_SEPARATOR);
 define('MEEST_PLUGIN_NAME', 'meest');
-define('MEEST_PLUGIN_VERSION', '1.3.1');
+define('MEEST_PLUGIN_VERSION', '1.5.1');
 define('MEEST_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MEEST_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('MEEST_PLUGIN_BASENAME', plugin_basename(__FILE__));

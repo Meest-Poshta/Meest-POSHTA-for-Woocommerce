@@ -11,7 +11,7 @@
             <img class="page-container-logo" src="<?php echo MEEST_PLUGIN_URL.'public\img\icon_big.png' ?>">
             <h1 class="wp-heading-inline"><?php _e('Pickups', MEEST_PLUGIN_DOMAIN) ?></h1>
             <?php if ($totalPickup > 0): ?>
-                <a href="admin.php?page=meest_pickup&action=create" class="page-title-action button-primary button-large"><?php _e('Create') ?></a>
+                <a href="admin.php?page=meest_pickup&action=create" class="page-title-action button-primary button-large"><?php _e('Create', MEEST_PLUGIN_DOMAIN) ?></a>
             <?php endif ?>
             <?php settings_errors() ?>
             <?php \MeestShipping\Core\Error::show(); ?>
