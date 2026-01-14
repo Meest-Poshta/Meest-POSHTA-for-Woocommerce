@@ -586,3 +586,33 @@ msgstr "Праворуч є список посилок, які будуть в�
 
 msgid "After creating the ”Pickup”, it can be edited and deleted."
 msgstr "Після створення ”Виклик кур`єра”, його можна редагувати та видалити."
+
+msgid "Contract ID"
+msgstr "ІД контракту"
+
+msgid "Contract ID for COD returns (optional)"
+msgstr "ІД контракту для повернення COD (опціонально)"
+
+msgid "If specified, cardForCOD is optional when creating parcels with COD"
+msgstr "Якщо вказано, дані картки для COD є опціональними при створенні посилок з накладеним платежем"
+
+msgid "Card for COD return"
+msgstr "Картка для повернення COD"
+
+msgid "Card number"
+msgstr "Номер картки"
+
+msgid "Owner name"
+msgstr "Ім'я власника"
+
+msgid "Owner phone"
+msgstr "Телефон власника"
+
+msgid "Required if Contract ID is not specified in settings"
+msgstr "Обов'язково, якщо ІД контракту не вказано в налаштуваннях"
+
+msgid "Optional (Contract ID is specified in settings)"
+msgstr "Опціонально (ІД контракту вказано в налаштуваннях)"
+
+msgid "Please specify Card for COD return or add Contract ID in plugin settings"
+msgstr "Будь ласка, вкажіть картку для повернення COD або додайте ІД контракту в налаштуваннях плагіна"

@@ -137,6 +137,7 @@ class SettingResource extends Resource
                 'username' => $this->data['credential']['username'] ?? null,
                 'password' => $this->data['credential']['password'] ?? null,
                 'token' => $this->data['credential']['token'] ?? null,
+                'contract_id' => $this->data['credential']['contract_id'] ?? null,
             ],
             'dictionary' => [
                 'is_db' => $this->data['dictionary']['is_db'] ?? false,

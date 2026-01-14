@@ -36,6 +36,7 @@ class Checkout implements Module
         
         // Сохранение данных в заказ
         add_action('woocommerce_checkout_create_order', [$this, 'saveOrderData'], 10, 2);
+        add_action('woocommerce_checkout_update_order_meta', [$this, 'updateOrderAddress'], 20, 1);
         
         // Загрузка скриптов и стилей
         add_action('wp_enqueue_scripts', [$this, 'enqueueAssets']);
@@ -269,16 +270,65 @@ class Checkout implements Module
     }
 
     /**
+     * Оновлюємо адресу після того як WooCommerce встановив свої значення
+     */
+    public function updateOrderAddress($orderId)
+    {
+        if (!$this->isMeestShippingSelected()) {
+            return;
+        }
+
+        $order = wc_get_order($orderId);
+        if (!$order) {
+            return;
+        }
+
+        $type = $this->getFieldType();
+        $deliveryType = sanitize_text_field($_POST["meest_{$type}_delivery_type"] ?? 'branch');
+
+        $address = '';
+        
+        // Отримуємо адресу залежно від типу доставки
+        if ($deliveryType === 'branch') {
+            $address = sanitize_text_field($_POST["meest_{$type}_branch_text"] ?? '');
+        } elseif ($deliveryType === 'poshtomat') {
+            $address = sanitize_text_field($_POST["meest_{$type}_branch_text"] ?? '');
+        } elseif ($deliveryType === 'address') {
+            $streetText = sanitize_text_field($_POST["meest_{$type}_street_text"] ?? '');
+            $building = sanitize_text_field($_POST["meest_{$type}_building"] ?? '');
+            $flat = sanitize_text_field($_POST["meest_{$type}_flat"] ?? '');
+            
+            $address = $streetText . ', ' . $building;
+            if (!empty($flat)) {
+                $address .= ' кв. ' . $flat;
+            }
+        }
+
+        if (!empty($address)) {
+            $order->set_billing_address_1($address);
+            $order->set_shipping_address_1($address);
+        }
+
+        // Встановлюємо місто
+        $cityName = sanitize_text_field($_POST["meest_{$type}_city_text"] ?? '');
+        if (!empty($cityName)) {
+            $order->set_billing_city($cityName);
+            $order->set_shipping_city($cityName);
+        }
+
+        $order->save();
+    }
+
+    /**
      * Устанавливаем адрес доставки
      */
     private function setShippingAddress($order, $address)
     {
         $address = sanitize_text_field($address);
-        if ('billing_only' === get_option('woocommerce_ship_to_destination')) {
-            $order->set_billing_address_1($address);
-        } else {
-            $order->set_shipping_address_1($address);
-        }
+        
+        // Встановлюємо адресу в обидва поля для надійності
+        $order->set_billing_address_1($address);
+        $order->set_shipping_address_1($address);
     }
 
     /**
@@ -287,7 +337,10 @@ class Checkout implements Module
     private function setShippingCountry($order, $country)
     {
         $country = sanitize_text_field($country);
-        if ('billing_only' === get_option('woocommerce_ship_to_destination')) {
+        $shipToDestination = get_option('woocommerce_ship_to_destination');
+        
+        // Перевіряємо обидва варіанти: 'billing' та 'billing_only'
+        if (in_array($shipToDestination, ['billing', 'billing_only'])) {
             $order->set_billing_country($country);
         } else {
             $order->set_shipping_country($country);
@@ -300,11 +353,10 @@ class Checkout implements Module
     private function setShippingCity($order, $city)
     {
         $city = sanitize_text_field($city);
-        if ('billing_only' === get_option('woocommerce_ship_to_destination')) {
-            $order->set_billing_city($city);
-        } else {
-            $order->set_shipping_city($city);
-        }
+        
+        // Встановлюємо місто в обидва поля для надійності
+        $order->set_billing_city($city);
+        $order->set_shipping_city($city);
     }
 
     /**
@@ -530,3 +582,4 @@ class Checkout implements Module
     }
 
 }
+

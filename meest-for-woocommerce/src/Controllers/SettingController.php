@@ -58,8 +58,14 @@ class SettingController extends Controller
                 $this->options = array_replace_recursive($this->options, $options);
 
                 if (!empty($this->options['credential']['token'])) {
+                    // Зберігаємо contract_id перед очищенням username/password
+                    $contractId = $options['credential']['contract_id'] ?? null;
                     $options['credential']['username'] = null;
                     $options['credential']['password'] = null;
+                    // Повертаємо contract_id назад
+                    if ($contractId !== null) {
+                        $options['credential']['contract_id'] = $contractId;
+                    }
                     $tokens = [
                         'token' => $this->options['credential']['token'],
                         'refreshToken' => null,

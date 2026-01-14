@@ -47,7 +47,24 @@ $link = 'admin.php?page=meest_parcel&action='.(is_null($parcel->id) ? 'create&po
                                             <label><?php _e('COD', MEEST_PLUGIN_DOMAIN) ?></label>
                                         </th>
                                         <td>
-                                            <input type="text" name="parcel[cod]" value="<?php echo esc_attr($parcel->cod ?? null) ?>">
+                                            <input type="text" id="meest_parcel_cod" name="parcel[cod]" value="<?php echo esc_attr($parcel->cod ?? null) ?>">
+                                        </td>
+                                    </tr>
+                                    <tr id="meest_card_for_cod_section">
+                                        <th scope="row">
+                                            <label><?php _e('Card for COD return', MEEST_PLUGIN_DOMAIN) ?></label>
+                                        </th>
+                                        <td>
+                                            <input type="text" name="parcel[card_number]" placeholder="<?php _e('Card number', MEEST_PLUGIN_DOMAIN) ?>" value="<?php echo esc_attr($parcel->card_number ?? '') ?>">
+                                            <p class="description" style="margin-top: 8px;">
+                                                <input type="text" name="parcel[card_ownername]" placeholder="<?php _e('Owner name', MEEST_PLUGIN_DOMAIN) ?>" value="<?php echo esc_attr($parcel->card_ownername ?? '') ?>" style="width: 48%; margin-right: 4%;">
+                                                <input type="text" name="parcel[card_ownermobile]" placeholder="<?php _e('Owner phone', MEEST_PLUGIN_DOMAIN) ?>" value="<?php echo esc_attr($parcel->card_ownermobile ?? '') ?>" style="width: 48%;">
+                                            </p>
+                                            <?php if (empty($options['credential']['contract_id'])): ?>
+                                                <p class="description"><?php _e('Required if Contract ID is not specified in settings', MEEST_PLUGIN_DOMAIN) ?></p>
+                                            <?php else: ?>
+                                                <p class="description"><?php _e('Optional (Contract ID is specified in settings)', MEEST_PLUGIN_DOMAIN) ?></p>
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                     <tr>

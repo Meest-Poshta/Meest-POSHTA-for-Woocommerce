@@ -39,7 +39,7 @@ class ParcelController extends Controller
 
     public function create()
     {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_woocommerce')) {
             return false;
         }
 
@@ -66,12 +66,23 @@ class ParcelController extends Controller
            
             try {
                 $request = new Request($_POST);
+                
+                // Валидация cardForCOD если включен auto_cod
+                if ($this->options['shipping']['auto_cod'] && !empty($request->parcel['cod'])) {
+                    $codAmount = floatval($request->parcel['cod']);
+                    $contractID = $this->options['credential']['contract_id'] ?? '';
+                    $cardNumber = $request->parcel['card_number'] ?? '';
+                    
+                    if ($codAmount > 0 && empty($contractID) && empty($cardNumber)) {
+                        throw new \Exception(__('Please specify Card for COD return or add Contract ID in plugin settings', MEEST_PLUGIN_DOMAIN));
+                    }
+                }
+                
                 $parcelApiData = ParcelApiResource::make($request->all());
                 $response = meest_init('Api')->parcelCreate($parcelApiData);
 
                 if (!empty($response)) {
                     $parcelData = ParcelResource::make($request->all());
-                    var_dump($parcelData);
                     $parcel = new Parcel([
                         'order_id' => $orderId ?? null,
                         'parcel_id' => $response['parcelID'],
@@ -329,7 +340,7 @@ class ParcelController extends Controller
 
     public function update()
     {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_woocommerce')) {
             return false;
         }
 
@@ -436,7 +447,7 @@ class ParcelController extends Controller
 
     public function tracking()
     {
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_woocommerce')) {
             return false;
         }
 

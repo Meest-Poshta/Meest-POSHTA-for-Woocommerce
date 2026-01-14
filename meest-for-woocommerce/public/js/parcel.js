@@ -96,6 +96,24 @@ jQuery(document).ready(function() {
                     $('#meest_parcel_lwh').hide();
                 }
             });
+            
+            // Показать/скрыть поля cardForCOD в зависимости от значения COD
+            let toggleCardForCOD = function() {
+                let codValue = parseFloat($('#meest_parcel_cod').val()) || 0;
+                if (codValue > 0) {
+                    $('#meest_card_for_cod_section').show();
+                } else {
+                    $('#meest_card_for_cod_section').hide();
+                }
+            };
+            
+            // Проверка при загрузке страницы
+            toggleCardForCOD();
+            
+            // Проверка при изменении значения COD
+            $('#meest_parcel_cod').on('input change', function() {
+                toggleCardForCOD();
+            });
         };
 
         return {

@@ -4,7 +4,7 @@ Tags: meest, commerce, woocommerce, shop, post, delivery, shipping, meest-expres
 Requires at least: 4.1
 Tested up to: 6.4
 Requires PHP: 7.0
-Stable tag: 1.4.5
+Stable tag: 1.5.1
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -151,6 +151,12 @@ License URI: https://www.gnu.org/licenses/gpl-2.0.html
 7. Order integration - create parcel button
 
 == Changelog ==
+
+= 1.5.1 =
+* Fixed: COD error and added Contract ID
+
+= 1.5 =
+* Fixed: Saved address display issue
 
 = 1.4.5 =
 * Fixed: Final fix for display fields
