@@ -2,9 +2,9 @@
 Contributors: deveu
 Tags: meest, commerce, woocommerce, shop, post, delivery, shipping, meest-express, meest-post, courier, delivery, міст, міст-експрес, пошта, мист, мист-экспресс, почта, доставка
 Requires at least: 4.1
-Tested up to: 6.4
+Tested up to: 6.7
 Requires PHP: 7.0
-Stable tag: 1.5.1
+Stable tag: 1.5.2
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -151,6 +151,9 @@ License URI: https://www.gnu.org/licenses/gpl-2.0.html
 7. Order integration - create parcel button
 
 == Changelog ==
+
+= 1.5.2 =
+* Updated: WordPress compatibility to 6.7
 
 = 1.5.1 =
 * Fixed: COD error and added Contract ID
